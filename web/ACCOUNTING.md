@@ -1,6 +1,6 @@
-# Accounting workbook (0.1.21)
+# Accounting workbook (0.1.22)
 
-Main Admin opens **Accounting** from the sidebar in Main Office. Version 0.1.21 displays the worksheets retained by the installation's private view policy, in their original order. The current configured view contains **16 worksheets**. The installed original source remains intact, including sheets removed from the view. Other staff and business tabs cannot access this private workbook.
+Main Admin opens **Accounting** from the sidebar in Main Office. Version 0.1.22 displays the worksheets retained by the installation's private view policy, in their original order. The current configured view contains **16 worksheets**. The installed original source remains intact, including sheets removed from the view. Other staff and business tabs cannot access this private workbook.
 
 ## Using the original worksheets
 
@@ -81,3 +81,9 @@ node tools/accounting-workbook-browser-check.cjs --output-directory validation/a
 ```
 
 The browser check requires Chrome or Chromium; set `CHROME_BIN` to its executable when automatic discovery is unavailable. It checks worksheet layout, locked headers and formulas, safe input rendering, filters, recalculation, recovery, persistence and permission scope. Private workbook contents are excluded from these public test fixtures and source packages.
+
+## Automatic bandwidth receipts
+
+Accounting → Bandwidth includes read-only monthly tables linked to saved operational bandwidth purchases. Date, saved supplier name, quantity with Mbps/Gbps, description, unit price and Payments appear automatically. Payments retains the workbook meaning of purchase cost; it is not supplier cash settlement. Each receipt appears once, including after refresh or an exact purchase retry.
+
+The linked tables follow the original worksheet styling and expand past twenty purchases without moving existing cells. Each has its own exact receipt-cost total. Original Excel entries and totals stay intact because an imported entry may already describe the same purchase. No extra expense, supplier payment or cash movement is posted by viewing Accounting. Corrections belong to the original purchase workflow. Unsaved or damaged purchase sources stop the automatic view until the original result is checked.

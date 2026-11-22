@@ -1,6 +1,6 @@
 {
   "format": "FIBERNETLB-WEB-PUBLIC-SOURCE-1",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "scope": "Explicit public application source only; no dependencies, runtime data, credentials, logs or private audit reports.",
   "files": [
     {
@@ -20,8 +20,8 @@
     },
     {
       "name": "ACCOUNTING.md",
-      "length": 8760,
-      "sha256": "84df31fda0b57833777eb8a3c9d7a27ecbf927f1fe01bb77a6047d896bfc37ea"
+      "length": 9697,
+      "sha256": "e972ae6485f601af546152b0efd8ac438dac3d3867cdce3f5fa54c405201dd27"
     },
     {
       "name": "DEPLOYMENT.md",
@@ -46,12 +46,22 @@
     {
       "name": "README.md",
       "length": 24183,
-      "sha256": "ec6e9117120bf371164dff3792da146fe9773d6c9a8a8820d1aaad89c365aa81"
+      "sha256": "0980cc3cc6983eee790dfa2afa8c060c427f3ed94a8a21bfffde049ddf9d3126"
     },
     {
       "name": "RECEIPTS-PRINTING-GUIDE.md",
       "length": 4854,
       "sha256": "43dde20a43c8824ddca9b6114c714f449efc22f8ddc1b3838e8cefae019b540f"
+    },
+    {
+      "name": "app/accounting-bandwidth-source.cjs",
+      "length": 1572,
+      "sha256": "03d169a7ff1ffad8bb81d094cace19a5f460d100f4c7994eb2fe4aefe05ac49c"
+    },
+    {
+      "name": "app/accounting-bandwidth.cjs",
+      "length": 10329,
+      "sha256": "232d47930a36f52dff5e9d924efc682fcfd049e6711060acf7b2ecaff6b855cd"
     },
     {
       "name": "app/accounting-register.cjs",
@@ -60,8 +70,8 @@
     },
     {
       "name": "app/accounting-workbook-store.cjs",
-      "length": 15366,
-      "sha256": "084db8fbebdfc0de1245e848758a83ff8bc0998d13c5ec28d6e0d2245448701d"
+      "length": 15642,
+      "sha256": "261d4142bc48222fe9c0c38bebc9d8841858b3b40392e0992ef4a3056ee4d71d"
     },
     {
       "name": "app/accounting-workbook.cjs",
@@ -190,8 +200,8 @@
     },
     {
       "name": "app/core.cjs",
-      "length": 395755,
-      "sha256": "974ff02729e65d2f5f2914071800bc3675eb2d37b1e2aed5a2f03a39b488a552"
+      "length": 395999,
+      "sha256": "69c30e11df0e69e4c4c20046bf028db31cd9630f6ffb0fd0bf5878d276ceb1a6"
     },
     {
       "name": "app/customer-registration.cjs",
@@ -405,13 +415,13 @@
     },
     {
       "name": "app/src/accounting-workbook.css",
-      "length": 10247,
-      "sha256": "0ba30894bc5670a9f0908c270386c8dde40e93304cc8f8dc3b25d2b9943a85eb"
+      "length": 11579,
+      "sha256": "46c848af5b8fd6d519f15359f942c43f52af6a90f14fe28ff63d320aa1dc714b"
     },
     {
       "name": "app/src/accounting-workbook.js",
-      "length": 54639,
-      "sha256": "96c6dacb1066932351036a4c54d8f41abeeb50f93b4f082f5a12f356542406b9"
+      "length": 60118,
+      "sha256": "1ba289042be41afaf8138b67bfdd4bdce10c2dd6660a8c114d51c4e2f269a212"
     },
     {
       "name": "app/src/action-feedback.css",
@@ -906,17 +916,27 @@
     {
       "name": "package-lock.json",
       "length": 1369,
-      "sha256": "1f1ca649f9c4b9a866e2921dd0cde4285683ed163392add4f3424b046d9aa647"
+      "sha256": "5a93feed45318ef71842d07a7f4112c2c4831a4be12a8f3403d82cccea3ec516"
     },
     {
       "name": "package.json",
       "length": 509,
-      "sha256": "4bddf6ba7277c18ef375bd2634df17f3a87fe23d5155978e34c08a662fadc930"
+      "sha256": "23e969b3e7b7c73b66b14da5cb87a6d4e811e6d259809a5dff54c4adde2cb143"
     },
     {
       "name": "server.cjs",
       "length": 26821,
       "sha256": "a6bc2aa57b49207c72ef539f12cf9cb9e18e8a48395fb60b4f6891e1ce20f0a6"
+    },
+    {
+      "name": "test/accounting-bandwidth-integration.test.cjs",
+      "length": 14634,
+      "sha256": "9699bb1380c70ace03ebeb0756da92e7d77e755da51e50403cff6339a567a01b"
+    },
+    {
+      "name": "test/accounting-bandwidth.test.cjs",
+      "length": 10928,
+      "sha256": "4d3747d181a35fc8f6b8379d1f66b48a2ffdffb8f4b5fca79af80d2d778daca1"
     },
     {
       "name": "test/accounting-register-http.test.cjs",
@@ -927,6 +947,11 @@
       "name": "test/accounting-register.test.cjs",
       "length": 19751,
       "sha256": "5c6de0d0d6daef500f2b19f755e57cfee092cdbdadf4ae0b40802efd63cee108"
+    },
+    {
+      "name": "test/accounting-workbook-bandwidth-ui.test.cjs",
+      "length": 16132,
+      "sha256": "ef1ed669ad9bf5742adc91dc2829df391c7c4d67d445c49f4613feeca0070c57"
     },
     {
       "name": "test/accounting-workbook-http.test.cjs",
@@ -1330,8 +1355,8 @@
     },
     {
       "name": "tools/accounting-workbook-browser-check.cjs",
-      "length": 13989,
-      "sha256": "d7dc0e568cc35ed8dc731827733a4b41c4781ecd3452c0e0b7dffe6808b2d1e5"
+      "length": 14139,
+      "sha256": "cd5960ebb2f59bacafb18beb4613a211b4f4abc4518341ee41b3df2170cc905e"
     },
     {
       "name": "tools/check-source.cjs",

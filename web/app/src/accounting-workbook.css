@@ -4,3 +4,10 @@
 .aw-cell-text.aw-accounting-value{display:flex;justify-content:space-between;gap:4px;width:100%;min-width:0}.aw-accounting-value>span:last-child{margin-left:auto;white-space:nowrap}.aw-accounting-value>span:first-child{flex:0 0 auto}
 
 .aw-tabs>button[data-aw-colored="true"]{border-bottom-color:var(--aw-tab-color)}
+
+/* Automatic receipts keep the worksheet grid and its original coordinates. */
+.aw-bandwidth-auto{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:12px 14px;background:#eef4fa;border:1px solid #bdcddb;border-bottom:0;font:14px/1.5 Calibri,Arial,sans-serif;color:#243b50;min-width:0}
+.aw-bandwidth-copy{flex:1 1 320px;min-width:0}.aw-bandwidth-copy>strong{font-weight:700}.aw-bandwidth-copy p{margin:4px 0 0;overflow-wrap:anywhere}.aw-bandwidth-copy .aw-bandwidth-count{font-size:13px;color:#4d6172}
+.aw-bandwidth-tools{display:flex;align-items:end;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%}.aw-bandwidth-tools label{display:grid;gap:4px;font-size:12px;min-width:0}.aw-bandwidth-tools select{appearance:auto!important;box-sizing:border-box;min-width:0;max-width:100%;min-height:36px;padding:7px 9px;border:1px solid #b9b9b9;border-radius:2px;background:#fff;color:#222;font:14px Calibri,Arial,sans-serif;box-shadow:none}.aw-bandwidth-tools button{white-space:nowrap}
+@media(max-width:700px){.aw-bandwidth-auto{padding:10px;gap:10px}.aw-bandwidth-copy{flex-basis:100%}.aw-bandwidth-tools{width:100%}.aw-bandwidth-tools label{flex:1 1 100%}.aw-bandwidth-tools select{width:100%}.aw-bandwidth-tools button{padding:8px 10px}}
+@media print{.aw-bandwidth-auto{display:none!important}}
