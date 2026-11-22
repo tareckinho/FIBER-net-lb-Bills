@@ -1,6 +1,7 @@
 /* Shared method contract copied from desktop 1.45.3; transport is supplied by browser-api.js. */
 window.buildBrowserPosApi = invoke => {
 const api = {
+  accounting:Object.fromEntries(['overview','save','remove','status','resume','workbook'].map(method=>[method,(input={})=>invoke('accounting:'+method,input)])),
   adminTransfers:Object.fromEntries(['access','sources','preview','transfer','status','resume','pending','history'].map(method=>[method,(input={})=>invoke('adminTransfers:'+method,input)])),
   notes:Object.fromEntries(['list','save','remove','restore','status','resume'].map(method=>[method,(input={})=>invoke('notes:'+method,input)])),
   billPayments:Object.fromEntries(['options','preview','correct','status','history'].map(method=>[method,input=>invoke('billPayments:'+method,input)])),

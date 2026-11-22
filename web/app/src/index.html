@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="month-closing-all.css" />
     <link rel="stylesheet" href="admin-money-transfers.css" />
     <link rel="stylesheet" href="sticky-notes.css" />
+    <link rel="stylesheet" href="accounting-workbook.css" />
     <link rel="stylesheet" href="bandwidth-accounting.css" />
     <link rel="stylesheet" href="daisyui.css" />
     <link rel="stylesheet" href="ui-enhancements.css" />
@@ -136,6 +137,7 @@
         <button id="back-main-dashboard" class="sidebar-main-return hidden" type="button" data-workspace="main" data-permission="dashboard.view" title="Return to the Main dashboard without signing out"><svg class="ui-icon" aria-hidden="true"><use href="#icon-arrow-left"></use></svg><span>Back to Main dashboard</span></button>
         <nav id="website-navigation" aria-label="Main navigation">
           <button class="nav-item active" data-view="dashboard" data-permission="dashboard.view"><svg class="ui-icon nav-icon" aria-hidden="true"><use href="#icon-dashboard"></use></svg>Dashboard</button>
+          <button id="accounting-navigation" class="nav-item hidden" data-view="accounting" data-permission="accounting.manage"><svg class="ui-icon nav-icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Accounting</button>
           <details id="workspace-menu" class="workspace-menu" open><summary><svg class="ui-icon" aria-hidden="true"><use href="#icon-business"></use></svg>Business<span class="menu-chevron">⌄</span></summary><div id="workspace-nav-list"></div></details>
           <button id="fiber-bills-navigation" class="nav-item hidden" data-view="bills" data-permission-any="bills.view,bills.create,bills.manage"><svg class="ui-icon nav-icon" aria-hidden="true"><use href="#icon-receipt"></use></svg>FIBER net lb Bills</button>
           <button id="change-plan-navigation" class="nav-item hidden" data-view="change-plan" data-permission="plans.manage"><svg class="ui-icon nav-icon" aria-hidden="true"><use href="#icon-change-plan"></use></svg>Change Plan</button>
@@ -357,6 +359,7 @@
           </div>
           <article class="panel"><div class="panel-heading"><div><p class="eyebrow">TEAM</p><h2>User accounts</h2></div><span id="user-count" class="count-badge">0</span></div><div class="table-wrap"><table><thead><tr><th>User</th><th>Username</th><th>Role</th><th>Status</th><th>Section access</th><th></th></tr></thead><tbody id="users-body"></tbody></table></div></article>
         </section>
+        <section id="view-accounting" class="view"><div id="accounting-register-root"></div></section>
       </main>
       <div id="dashboard-bandwidth-payment-root" hidden aria-hidden="true"></div>
     </div>
@@ -665,6 +668,7 @@
     <script src="month-closing-all.js"></script>
     <script src="admin-money-transfers.js"></script>
     <script src="sticky-notes.js"></script>
+    <script src="accounting-workbook.js"></script>
     <script src="finance-dashboard.js"></script>
     <script src="action-feedback.js"></script>
     <script src="staff-capabilities.js"></script>

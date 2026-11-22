@@ -206,7 +206,7 @@ function createServer(options = {}) {
     return Promise.resolve(backend.metadata(workspaceId)).then(value => {
       // Expose the declared browser metadata only; never host paths or settings.
       const source = value || {};
-      return {version: source.version || options.version || '0.1.0', section: source.section, sections: source.sections, areas: source.areas, needsSetup: Boolean(source.needsSetup), demo: Boolean(demo), capabilities: {browserPrinting: true, csvDownload: true, nativePrinters: false, nativePrinting: false, nativeUpdates: false, backups: true, portalSettings: true, backupRestore: 'operator', hostAdministration: true, providerActions: Boolean(source.providersEnabled)}};
+      return {version: source.version || options.version || '0.1.0', section: source.section, sections: source.sections, areas: source.areas, needsSetup: Boolean(source.needsSetup), demo: Boolean(demo), ...(demo&&typeof options.demoLabel==='string'?{demoLabel:options.demoLabel.slice(0,180)}:{}), capabilities: {browserPrinting: true, csvDownload: true, nativePrinters: false, nativePrinting: false, nativeUpdates: false, backups: true, portalSettings: true, backupRestore: 'operator', hostAdministration: true, providerActions: Boolean(source.providersEnabled)}};
     });
   }
 

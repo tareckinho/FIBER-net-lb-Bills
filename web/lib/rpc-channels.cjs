@@ -6,6 +6,7 @@ const groups = {
   backups: 'status save run retry test',
   adminTransfers: 'access sources preview transfer status resume pending history',
   notes: 'list save remove restore status resume',
+  accounting: 'overview save remove status resume workbook',
   bank: 'access overview sources preview transfer status resume pending collectionOverview',
   mainOfficePayables: 'overview details',
   maintenance: 'list save checkoutOptions checkout status pending resume',

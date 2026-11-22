@@ -64,6 +64,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day
 const AVAILABLE_THEMES = new Set(["classic", "fibernetlb"]);
 
 function has(permission) {
+  if(permission==='accounting.manage')return businessWorkspace.id==='main'&&state.currentUser?.role==='admin'&&Boolean(state.currentUser?.permissions?.includes('reports.view'))&&Boolean(api.accounting);
   const role=state.currentUser?.role==='section_user'?(state.currentUser.sourceRole||state.currentUser.source_role):state.currentUser?.role;
   if(businessWorkspace.id==='fiber-users'&&['cashier','support'].includes(role)&&['products.manage','products.delete'].includes(permission))return false;
   if(permission==='ledger.manage')return state.currentUser?.role==='admin'&&Boolean(api.finance);
@@ -615,6 +616,7 @@ function showAuth(mode) {
   state.syncing = false;
   window.AdminMoneyTransfers?.reset();
   window.StickyNotes?.reset();
+  window.AccountingWorkbook?.reset();
   window.Bank?.reset();
   window.MonthCloseSchedule?.reset();
   window.CompanyDebts?.reset();
@@ -660,6 +662,7 @@ async function startApp(user) {
   window.AdminMoneyTransfers?.init({api:api.adminTransfers,user,workspace:businessWorkspace,getUser:()=>state.currentUser,getWorkspace:()=>businessWorkspace,toast:showToast,onComplete:async()=>{await Promise.all([loadDashboard(),has('drawer.view')?loadDrawer():Promise.resolve()]);}});
   window.StickyNotes?.init({api:api.notes,user,workspace:businessWorkspace,getUser:()=>state.currentUser,getWorkspace:()=>businessWorkspace,toast:showToast});
   $('#sticky-notes-button').onclick=()=>window.StickyNotes?.open().catch(error=>showToast(errorMessage(error),'error'));
+  window.AccountingWorkbook?.init({container:'accounting-register-root',api:api.accounting,user,workspace:businessWorkspace,getUser:()=>state.currentUser,getWorkspace:()=>businessWorkspace,toast:showToast});
   window.Bank?.init({container:'bank-root',api:api.bank,user,workspace:businessWorkspace,getUser:()=>state.currentUser,getWorkspace:()=>businessWorkspace,toast:showToast,onBack:()=>switchView('dashboard'),refresh:async()=>{await Promise.all([loadDashboard(),has('drawer.view')?loadDrawer():Promise.resolve()]);}});
   window.CompanyDebts?.init({container:'company-debts-root',api,user,workspace:businessWorkspace,getUser:()=>state.currentUser,getWorkspace:()=>businessWorkspace,isCurrentView:()=>state.currentView==='company-debts',toast:showToast,onBack:()=>switchView('dashboard'),onOpenMonthly:id=>switchView('fixed-monthly',{billId:id}),onPayMonthlyFromDashboard:id=>window.FixedMonthlyPayments.payFromDashboard(id),refreshMonthly:()=>window.FixedMonthlyPayments?.load(),refresh:async()=>{await Promise.all([loadDashboard(),has('drawer.view')?loadDrawer():Promise.resolve(),has('reports.view')&&state.currentView==='reports'?loadReport():Promise.resolve()]);}});
   window.FixedMonthlyPayments?.init({container:'fixed-monthly-root',api:api.fixedMonthly,user,workspace:businessWorkspace,getUser:()=>state.currentUser,getWorkspace:()=>businessWorkspace,toast:showToast,onBack:()=>switchView('dashboard'),onCompanyDebt:id=>switchView('company-debts',{debtId:id}),refresh:async()=>{await Promise.all([loadDashboard(),has('drawer.view')?loadDrawer():Promise.resolve(),has('reports.view')&&state.currentView==='reports'?loadReport():Promise.resolve()]);}});
@@ -736,6 +739,8 @@ async function synchronizeSharedData(refreshVisibleView=false) {
     window.MonthCloseSchedule?.updateUser?.(auth.user);
     window.AdminMoneyTransfers?.updateUser?.(auth.user);
     window.StickyNotes?.updateUser?.(auth.user);
+    window.AccountingWorkbook?.updateUser?.(auth.user);
+    if(!has('accounting.manage')){window.AccountingWorkbook?.reset();if(state.currentView==='accounting')switchView(defaultView());}
     window.BandwidthAccounting?.updateUser?.(auth.user);
     window.SupportHandover?.updateUser?.(auth.user);
     window.ResellerFunding?.updateUser?.(auth.user);
@@ -1636,6 +1641,7 @@ async function loadReport() {
 }
 
 function switchView(view,options={}) {
+  if(view==='accounting'&&!has('accounting.manage'))return;
   if(view==='bank'&&(!isMainAdmin()||!api.bank))return;
   if(view!=='bank')window.Bank?.suspend?.();
   window.AdminMoneyTransfers?.suspend?.();
@@ -1647,7 +1653,7 @@ function switchView(view,options={}) {
   if (view === "telecom" && !has("telecom.view") && !has("telecom.create") && !has("telecom.manage")) return;
   const permissions = {ledger:['ledger.manage'], "change-plan":["plans.manage"],dashboard:["dashboard.view"], pos:["sales.create"], products:["products.read"], purchases:["purchases.view","purchases.manage"], expenses:["expenses.view","expenses.manage"], attendance:["attendance.clock","attendance.view","attendance.manage"], reports:["reports.view"], users:["users.manage"], debts:["debts.view"] };
   if (permissions[view] && !permissions[view].some(has)) return;
-  const titles = { dashboard: "Dashboard", pos: "Point of Sale", products: "Products", purchases: "Purchases", expenses: "Expenses", attendance: "Employee Attendance", bills: "FibernetLB Bills", telecom: "Mobile & Ogero", debts: "Outstanding Debts", reports: "Reports", users: "Users" };
+  const titles = { accounting: "Accounting", dashboard: "Dashboard", pos: "Point of Sale", products: "Products", purchases: "Purchases", expenses: "Expenses", attendance: "Employee Attendance", bills: "FibernetLB Bills", telecom: "Mobile & Ogero", debts: "Outstanding Debts", reports: "Reports", users: "Users" };
   state.currentView = view;
   $$(".view").forEach((element) => element.classList.toggle("active", element.id === `view-${view}`));
   $$(".nav-item").forEach((nav) => nav.classList.toggle("active", nav.dataset.view === view));
@@ -1659,6 +1665,7 @@ function switchView(view,options={}) {
   if(view==='fixed-monthly')officeOpen=options.billId?window.FixedMonthlyPayments?.openBill(options.billId):window.FixedMonthlyPayments?.open();
   if(view==='company-debts')officeOpen=options.debtId?window.CompanyDebts?.openDebt(options.debtId):window.CompanyDebts?.open();
   if(view==='bank')officeOpen=window.Bank?.open();
+  if(view==='accounting')officeOpen=window.AccountingWorkbook?.load();
   officeOpen?.catch(error=>showToast(errorMessage(error),'error'));
   if(view==="backups"){$("#page-title").textContent="Backups";window.BackupView?.load().catch(error=>showToast(errorMessage(error),"error"));}
   if(view==='ledger'){$('#page-title').textContent='Monthly ledger';window.FinanceDashboard?.loadLedger().catch(error=>showToast(errorMessage(error),'error'));}

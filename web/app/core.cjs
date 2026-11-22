@@ -8,7 +8,7 @@ const {promisify}=require('node:util');
 const derivePassword=promisify(require('node:crypto').scrypt);
 const activeDirectories=new Set();
 
-async function createBackend({dataDirectory,version='0.1.0',wasmPath,secrets,initialize=false,providersEnabled=false,sessionClock=Date.now,monthCloseClock=()=>new Date(),automaticMonthClose=true}={}){
+async function createBackend({dataDirectory,version='0.1.0',wasmPath,secrets,initialize=false,providersEnabled=false,sessionClock=Date.now,monthCloseClock=()=>new Date(),automaticMonthClose=true,accountingWorkbookSnapshot}={}){
  if(typeof dataDirectory!=='string'||!pathForRuntime.isAbsolute(dataDirectory))throw Error('An explicit absolute private dataDirectory is required.');
  initialize=initialize===true;providersEnabled=providersEnabled===true;
  dataDirectory=pathForRuntime.resolve(dataDirectory);
@@ -56,6 +56,8 @@ const MonthOpeningCustody=require('./month-opening-custody.cjs');
 const AdminTransferService=require('./admin-money-transfers.cjs');
 const ResellerCarryCustody=require('./reseller-carry-custody.cjs');
 const StickyNotesService=require('./sticky-notes.cjs');
+const AccountingRegisterService=require('./accounting-register.cjs');
+const AccountingWorkbookStorage=require('./accounting-workbook-store.cjs');
 const CompanyDebtSpending=require('./company-debt-spending.cjs');
 const MainOfficeSummary=require('./main-office-summary.cjs');
 const ResellerCollectedRevenue=require('./reseller-collected-revenue.cjs');
@@ -77,7 +79,7 @@ let fixedMonthlyCategories;
 let companyDebts;
 let bankAccounts;
 let monthClosing,monthClosingAll;
-let adminMoneyTransfers,stickyNotes;
+let adminMoneyTransfers,stickyNotes,accountingRegister,accountingWorkbookStore;
 const MONTH_CLOSING_CHANNELS=new Set(['finance:closeMonthPreview','finance:commitMonthClose','finance:closeMonth','finance:closeMonthStatus','finance:resumeMonthClose','finance:pendingMonthClose','finance:closeMonthsPreview','finance:commitMonthsClose','finance:closeMonthsStatus','finance:resumeMonthsClose']);
 const BANDWIDTH_GUARDED_WRITES=new Set(['bills:startChangeRenew','bills:confirmChangeRenew','bills:resumeChangeRenew','bills:resolveChangeRenew','workspace:reset','users:update','users:updateAccess','users:delete','drawer:setBalance','sales:create','purchases:create','purchases:update','purchases:delete','expenses:create','expenses:update','expenses:delete','bills:create','bills:delete','bills:savePortal','bills:saveRenew','bills:saveFreeRenewal','bills:reset','telecomPayments:create','telecomPayments:delete','debts:pay','debts:refund','finance:closeMonth','finance:handover','finance:walletMove','finance:endDay','resellers:fund','resellers:refund','resellers:payBill','resellers:cancelCollection','resellers:reconcileWallets','resellers:correctCollectedWallets','whish:save']);
 let backupManager;
@@ -434,6 +436,7 @@ function checkWorkspaceChannel(channel) {
   if(channel.startsWith('bandwidth:')&&(kind!=='main'||currentUser()?.role!=='admin'))throw Error('Bandwidth Accounting is available only to the Main Office administrator.');
   if(channel.startsWith('fixedMonthly:')&&(kind!=='main'||currentUser()?.role!=='admin'))throw Error('Fixed monthly payments are available only to the Main Office administrator.');
   if(channel.startsWith('companyDebts:')&&(kind!=='main'||currentUser()?.role!=='admin'))throw Error('Company debts are available only to the Main Office administrator.');
+  if(channel.startsWith('accounting:')&&(kind!=='main'||currentUser()?.role!=='admin'||currentUser()?.activity_inspection))throw Error('Accounting is available only to the Main Office administrator.');
   if(channel.startsWith('bank:')&&(kind!=='main'||currentUser()?.role!=='admin'||currentUser()?.activity_inspection))throw Error('Bank is available only to the Main Office administrator.');
   if(channel.startsWith('adminTransfers:')&&(kind!=='main'||currentUser()?.role!=='admin'||currentUser()?.activity_inspection))throw Error('Admin transfers are available only to the Main Office administrator.');
   if(channel.startsWith('mainOfficePayables:')&&(kind!=='main'||currentUser()?.role!=='admin'||currentUser()?.activity_inspection))throw Error('Main Office payment summaries are available only to the Main administrator.');
@@ -443,6 +446,7 @@ function checkWorkspaceChannel(channel) {
 function registerHandler(channel, handler) {
   const guarded = (event, ...args) => {
     checkWorkspaceChannel(channel);
+    if(!channel.startsWith('accounting:')&&!channel.startsWith('auth:')&&channel!=='finance:autoMonthStatus')accountingRegister?.assertIdle?.();
     if(!['billPayments:correct','billPayments:status'].includes(channel)&&!channel.startsWith('auth:'))billPaymentCorrections?.assertIdle();
     if(currentUser()&&/^notes:(save|remove|restore|resume)$/.test(channel)){bankAccounts?.assertIdle();monthClosing?.assertIdle();assertCommerceIdle();assertWarehouseIdle();assertInvoiceVoidIdle();assertNoFixedMonthlyPending('main');assertNoBandwidthPending('main');}
     if(currentUser()&&!channel.startsWith('adminTransfers:')&&(BANDWIDTH_GUARDED_WRITES.has(channel)||/^(warehouse:|invoiceVoids:|reports:|finance:|adminReceivables:|adminCatalog:|products:|purchases:|debts:|resellers:|bandwidth:|fixedMonthly:|companyDebts:|bank:|maintenance:|stockPurchases:|portal:|bills:|telecomPayments:|backups:|notes:save|notes:remove|notes:restore|notes:resume|updates:rollback)/.test(channel)))adminMoneyTransfers?.assertIdle();
@@ -1761,6 +1765,11 @@ function initializeBusinessSections(SQL) {
   const notesEntry=workspaceDatabases.get('main');
   if(StickyNotesService.needsMigration(notesEntry.db)){backupAllSections('before-private-sticky-notes');notesEntry.db.exec('BEGIN');try{StickyNotesService.initialize(notesEntry.db);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
   stickyNotes=new StickyNotesService.StickyNotes({db:notesEntry.db,authorize:notesOwner,now:localIso,saveEntry:()=>saveSectionEntry(notesEntry)});
+  if(AccountingRegisterService.needsMigration(notesEntry.db)){backupAllSections('before-accounting-register');notesEntry.db.exec('BEGIN');try{AccountingRegisterService.initialize(notesEntry.db);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
+  if(AccountingWorkbookStorage.needsMigration(notesEntry.db)){backupAllSections('before-original-accounting-workbook');notesEntry.db.exec('BEGIN');try{AccountingWorkbookStorage.initialize(notesEntry.db);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
+  accountingRegister=new AccountingRegisterService.AccountingRegister({db:notesEntry.db,authorize:accountingAdmin,now:localIso,saveEntry:()=>saveSectionEntry(notesEntry),validateCell:(data,year,id)=>accountingWorkbookStore.assertEditable(data,year,id)});
+  accountingWorkbookStore=new AccountingWorkbookStorage.WorkbookStore({db:notesEntry.db,register:accountingRegister,authorize:accountingAdmin,now:localIso});
+  if(accountingWorkbookSnapshot){backupAllSections('before-install-accounting-workbook-source');notesEntry.db.exec('BEGIN');try{accountingWorkbookStore.install(accountingWorkbookSnapshot);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
   if(FixedMonthlyCategories.needsMigration(workspaceDatabases.get('main').db)){
     backupAllSections('before-fixed-monthly-categories');
     const entry=workspaceDatabases.get('main');entry.db.exec('BEGIN');
@@ -2377,6 +2386,18 @@ function registerAdminTransferHandlers(){
   registerHandler('adminTransfers:access',()=>({user:publicUser(adminTransferAdmin())}));
   for(const method of ['sources','preview','transfer','status','resume','pending','history'])registerHandler('adminTransfers:'+method,(_event,input)=>{adminTransferAdmin();return adminMoneyTransfers[method](input);});
 }
+function accountingAdmin(){
+  requirePermission('reports.view');const user=currentUser();
+  if(activeWorkspace().id!=='main'||user?.role!=='admin'||user?.activity_inspection)throw Error('Only the signed-in Main administrator can use Accounting.');
+  const fresh=sectionAccess.forWorkspace(user,'main');
+  if(!fresh?.active||fresh.role!=='admin'||fresh.account_key!==user.account_key)throw Error('An active Main administrator is required for Accounting.');
+  return fresh;
+}
+function registerAccountingHandlers(){
+  for(const method of ['overview','save','remove','status','resume','workbook'])registerHandler('accounting:'+method,(_event,...args)=>{
+    accountingAdmin();if(args.length!==1)throw Error('Accounting requests require one explicit input.');return method==='workbook'?accountingWorkbookStore.workbook(args[0]):accountingRegister[method](args[0]);
+  });
+}
 function notesOwner(){
   const user=currentUser();StickyNotesService.owner(user);const fresh=sectionAccess.forWorkspace(user,activeWorkspace().id);if(!fresh?.active||fresh.account_key!==user.account_key)throw Error('Sign in to your own active account to open private notes.');return {...fresh,activity_inspection:user.activity_inspection};
 }
@@ -2759,6 +2780,7 @@ function registerHandlers() {
   registerBankHandlers();
   registerAdminTransferHandlers();
   registerNotesHandlers();
+  registerAccountingHandlers();
   registerMainOfficeSummaryHandlers();
   registerFinanceHandlers();
   // Main's Cashier/Support cards are saved-ledger reads, not portal balances or an

@@ -1,8 +1,14 @@
 # FIBER net lb website preview
 
-Version 0.1.18 is the browser version of the existing FIBER net lb accounting application. It runs the accounting modules on a separate Node 24 server and serves the current DaisyUI interface to phones, tablets and computers. Electron and a Windows desktop are not required on the server.
+Version 0.1.20 is the browser version of the existing FIBER net lb accounting application. It runs the accounting modules on a separate Node 24 server and serves the current DaisyUI interface to phones, tablets and computers. Electron and a Windows desktop are not required on the server.
 
 Use isolated staging and a copied-data rehearsal before a new deployment or upgrade. The existing authorized accounting server remains the sole authority until an agreed cutover; an already migrated website must not resume recording on its old desktop copy. The website uses the seven existing SQLite database formats. Fictional previews and their checks are separate from accepting live business data.
+
+## Accounting workbook
+
+Main Admin opens **Accounting** in Main Office to use the supplied workbook's 25 original worksheets, retaining their columns, styles, merged cells, table filters and formulas. Edit literal input cells, recalculate across sheets, restore an original cell, and recover an uncertain save using its original request. Formula cells and table headings remain locked; the source XLSX and installed snapshot stay unchanged. Worksheet edits are independent from operational bills, cash drawers, wallets and Bank.
+
+The earlier normalized records and audit history remain stored. See [ACCOUNTING.md](ACCOUNTING.md) for the worksheet workflow, safe recovery, focused verification and the private `--workbook` local preview.
 
 ## Dashboard speed and gateway connections
 
@@ -146,4 +152,5 @@ Chrome must be installed for the UI test. Set `CHROME_BIN` to its absolute path 
 The Ubuntu GitHub workflow also builds the production image and checks non-root container startup, encryption, writer locking, disabled providers and restart persistence using fictional mounts. A successful CI run is separate from acceptance on an operator's Ubuntu server and from checking actual data.
 
 Read [DEPLOYMENT.md](DEPLOYMENT.md) for hosting and [MIGRATION.md](MIGRATION.md) for preserving old data. No domain, live server or migration snapshot is included in this public package.
+
 
