@@ -1,6 +1,6 @@
-# Accounting workbook (0.1.20)
+# Accounting workbook (0.1.21)
 
-Main Admin opens **Accounting** from the sidebar in Main Office. Version 0.1.20 displays the supplied workbook's 25 original worksheets in their original order, including the monthly sheets, Accounting, Bandwidth, Bandwidth Resellers, Loan, project sheets, office plans and solar calculations. Other staff and business tabs cannot access this private workbook.
+Main Admin opens **Accounting** from the sidebar in Main Office. Version 0.1.21 displays the worksheets retained by the installation's private view policy, in their original order. The current configured view contains **16 worksheets**. The installed original source remains intact, including sheets removed from the view. Other staff and business tabs cannot access this private workbook.
 
 ## Using the original worksheets
 
@@ -14,6 +14,27 @@ Use a table header's filter button to select the values to display. Filters upda
 
 For an edited input, **Restore original cell** returns that cell to its source value while retaining its edit history. Other cell changes remain saved. A restored cell can be edited again using its current revision.
 
+## Private worksheet view policy
+
+The operator can place `accounting-workbook-view.json` in the private server data directory. The server reads this file at startup. Its JSON object has exactly four fields:
+
+| Field | Required value |
+| --- | --- |
+| `format` | `FIBERNETLB-ACCOUNTING-WORKBOOK-VIEW-1` |
+| `year` | The installed workbook year, an integer from 2000 through 2099 |
+| `sourceSha256` | The installed original XLSX source's 64-character hexadecimal SHA-256 |
+| `excludedSheets` | An array of exact original worksheet names to remove from the view |
+
+Keep this configuration private; actual worksheet selections do not belong in public source or examples. Use a bounded regular file, without symbolic or hard links, no larger than 64 KiB. Stop the server before applying a reviewed policy and restart it afterward. A malformed policy, mismatched year or source, an unknown or duplicate worksheet name, or a policy excluding every worksheet prevents startup.
+
+Excluded worksheets are absent from the selector and cannot be opened or edited through Accounting. Their original cells, existing edits and immutable request history remain stored. Calculations still use the complete original workbook and saved input changes, so references from retained worksheets continue to work. Removing a worksheet from the view does not erase it or post a financial adjustment. When no policy file is present, the original installed worksheet selection is available.
+
+## Backups and restoration
+
+Encrypted backups include `accounting-workbook-view.json` when it is present, alongside the existing seven business databases and optional settings. The installed workbook snapshot and saved cell edits remain in Main. Keep the policy with the matching database backup and original server configuration.
+
+Restore the private policy together with its matching databases before starting the restored server. The policy's year, source hash and worksheet names must match that restored workbook. Older archives without a policy remain supported; if the file is absent after restoration, the original worksheet selection is available. Reapply the intended reviewed policy before startup when that restricted view must be preserved. Restore remains an operator task; changing the policy does not restore or replace databases.
+
 ## Saving and recovery
 
 Cell saves and restorations retain an original request reference, operator, revision and audit history. Concurrent edits require the current cell revision. The original XLSX file and installed source snapshot remain unchanged; saved changes are stored separately in the Main database and included in the existing seven-database backups.
@@ -24,7 +45,7 @@ Worksheet edits belong to this independent Accounting workbook. Enter operationa
 
 ## Earlier normalized records
 
-The reviewed local dataset retains its earlier 416 normalized Accounting records and their source filename, sheet, row, SHA-256, revisions and request history. The original worksheet grid is the current interface; those earlier records remain available to the existing accounting register API for audit and recovery. Blank template rows are not converted into transactions. Office plans and solar calculations are shown in their original worksheets rather than being converted into financial postings.
+Where earlier normalized Accounting records already exist, their source provenance, revisions and request history remain stored. The original worksheet grid is the current interface; a view policy does not delete those earlier records or create a normalized import. Blank template rows are not converted into transactions. Original worksheets remain independent from operational financial postings.
 
 ## Private local review
 

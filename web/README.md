@@ -1,14 +1,14 @@
 # FIBER net lb website preview
 
-Version 0.1.20 is the browser version of the existing FIBER net lb accounting application. It runs the accounting modules on a separate Node 24 server and serves the current DaisyUI interface to phones, tablets and computers. Electron and a Windows desktop are not required on the server.
+Version 0.1.21 is the browser version of the existing FIBER net lb accounting application. It runs the accounting modules on a separate Node 24 server and serves the current DaisyUI interface to phones, tablets and computers. Electron and a Windows desktop are not required on the server.
 
 Use isolated staging and a copied-data rehearsal before a new deployment or upgrade. The existing authorized accounting server remains the sole authority until an agreed cutover; an already migrated website must not resume recording on its old desktop copy. The website uses the seven existing SQLite database formats. Fictional previews and their checks are separate from accepting live business data.
 
 ## Accounting workbook
 
-Main Admin opens **Accounting** in Main Office to use the supplied workbook's 25 original worksheets, retaining their columns, styles, merged cells, table filters and formulas. Edit literal input cells, recalculate across sheets, restore an original cell, and recover an uncertain save using its original request. Formula cells and table headings remain locked; the source XLSX and installed snapshot stay unchanged. Worksheet edits are independent from operational bills, cash drawers, wallets and Bank.
+Main Admin opens **Accounting** in Main Office to use the original workbook grid, retaining its columns, styles, merged cells, table filters and formulas. The current configured view contains 16 retained worksheets in their original order. An operator-managed private worksheet policy controls which sheets appear; the original source and existing records remain preserved. Edit literal input cells, recalculate across sheets, restore an original cell, and recover an uncertain save using its original request. Formula cells and table headings remain locked. Worksheet edits are independent from operational bills, cash drawers, wallets and Bank.
 
-The earlier normalized records and audit history remain stored. See [ACCOUNTING.md](ACCOUNTING.md) for the worksheet workflow, safe recovery, focused verification and the private `--workbook` local preview.
+Existing normalized records and audit history remain stored. When present, the private `accounting-workbook-view.json` policy is included in encrypted backups and must accompany a matching restore. See [ACCOUNTING.md](ACCOUNTING.md) for policy configuration, backup and restore behavior, the worksheet workflow, safe recovery and the private `--workbook` local preview.
 
 ## Dashboard speed and gateway connections
 

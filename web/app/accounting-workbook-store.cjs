@@ -1,9 +1,31 @@
 'use strict';
-const crypto=require('node:crypto'),zlib=require('node:zlib');
+const crypto=require('node:crypto'),zlib=require('node:zlib'),fs=require('node:fs'),path=require('node:path');
 const {query:q}=require('./finance-ledger.cjs');
 const Model=require('./accounting-workbook.cjs');
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 const plain=v=>v&&typeof v==='object'&&!Array.isArray(v)&&[Object.prototype,null].includes(Object.getPrototypeOf(v));
+const POLICY_FILE='accounting-workbook-view.json',POLICY_FORMAT='FIBERNETLB-ACCOUNTING-WORKBOOK-VIEW-1',MAX_POLICY_BYTES=64*1024;
+function viewPolicy(value){
+ if(value==null)return null;
+ const fields=['format','year','sourceSha256','excludedSheets'];
+ if(!plain(value)||Reflect.ownKeys(value).length!==fields.length||Reflect.ownKeys(value).some(k=>typeof k!=='string'||!fields.includes(k))||fields.some(k=>!Object.hasOwn(value,k))||value.format!==POLICY_FORMAT||!Number.isInteger(value.year)||value.year<2000||value.year>2099||typeof value.sourceSha256!=='string'||!/^[a-f0-9]{64}$/i.test(value.sourceSha256)||!Array.isArray(value.excludedSheets)||value.excludedSheets.length>100||Array.from(value.excludedSheets).some(name=>typeof name!=='string'||!name||name.length>31||/[\u0000-\u001f\u007f]/.test(name))||new Set(value.excludedSheets.map(name=>name.toLowerCase())).size!==value.excludedSheets.length)throw Error('Choose a valid private workbook view policy.');
+ return Object.freeze({format:POLICY_FORMAT,year:value.year,sourceSha256:value.sourceSha256.toLowerCase(),excludedSheets:Object.freeze([...value.excludedSheets])});
+}
+function readViewPolicy(file){
+ if(typeof file!=='string'||!path.isAbsolute(file))throw Error('The private workbook view policy requires an absolute path.');
+ let before;try{before=fs.lstatSync(file);}catch(error){if(error.code==='ENOENT')return null;throw Error('The private workbook view policy could not be read.');}
+ if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1||before.size>MAX_POLICY_BYTES)throw Error('The private workbook view policy must be a bounded regular file without links.');
+ let descriptor;
+ try{
+  descriptor=fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));const opened=fs.fstatSync(descriptor);
+  if(!opened.isFile()||opened.dev!==before.dev||opened.ino!==before.ino||opened.size>MAX_POLICY_BYTES)throw Error('changed');
+  const buffer=Buffer.alloc(MAX_POLICY_BYTES+1);let length=0,count;
+  do{count=fs.readSync(descriptor,buffer,length,buffer.length-length,null);length+=count;}while(count&&length<buffer.length);
+  const after=fs.fstatSync(descriptor);
+  if(length>MAX_POLICY_BYTES||length!==opened.size||after.size!==opened.size||after.mtimeMs!==opened.mtimeMs)throw Error('changed');
+  const parsed=JSON.parse(buffer.subarray(0,length).toString('utf8').replace(/^\uFEFF/,''));if(parsed===null)throw Error('shape');return viewPolicy(parsed);
+ }catch{throw Error('The private workbook view policy is invalid or could not be read.');}finally{if(descriptor!==undefined)fs.closeSync(descriptor);}
+}
 function keys(v,allowed,required=[]){if(!plain(v)||Object.keys(v).some(k=>!allowed.includes(k))||required.some(k=>!Object.hasOwn(v,k)))throw Error('Choose valid workbook request fields.');}
 function validYear(y){if(!Number.isInteger(y)||y<2000||y>2099)throw Error('Choose a workbook year from 2000 through 2099.');return y;}
 function address(a){const m=typeof a==='string'&&/^([A-Z]{1,3})([1-9]\d{0,6})$/.exec(a);if(!m)throw Error('Choose a valid worksheet cell.');const col=Model.columnNumber(m[1]),row=Number(m[2]);if(col>16384||row>1048576)throw Error('Choose a valid worksheet cell.');return {col,row};}
@@ -28,14 +50,18 @@ function validateLayout(snapshot){
  return snapshot;
 }
 class WorkbookStore{
- constructor(context){Object.assign(this,context);this.snapshots=new Map();this.calculations=new Map();}
+ constructor(context){Object.assign(this,context);this.viewPolicy=viewPolicy(context.viewPolicy);this.snapshots=new Map();this.calculations=new Map();}
  install(snapshot){validateLayout(snapshot);const existing=q(this.db,'SELECT source_sha256 FROM accounting_workbook_sources WHERE year=?',[snapshot.year])[0];if(existing){if(existing.source_sha256!==snapshot.sha256)throw Error('An original workbook is already installed for this year. Preserve its records before changing sources.');return false;}const raw=Buffer.from(JSON.stringify(snapshot));if(raw.length>64*1024*1024)throw Error('The private workbook exceeds the supported size.');this.db.run('INSERT INTO accounting_workbook_sources VALUES(?,?,?,?,?,?)',[snapshot.year,snapshot.name,snapshot.sha256,hash(raw),zlib.gzipSync(raw),this.now()]);this.snapshots.delete(snapshot.year);return true;}
  source(year){validYear(year);if(this.snapshots.has(year))return this.snapshots.get(year);const row=q(this.db,'SELECT * FROM accounting_workbook_sources WHERE year=?',[year])[0];if(!row)return null;let raw,snapshot;try{raw=zlib.gunzipSync(Buffer.from(row.snapshot_gzip),{maxOutputLength:64*1024*1024});snapshot=JSON.parse(raw.toString('utf8'));}catch{throw Error('The private workbook snapshot could not be read.');}if(hash(raw)!==row.payload_sha256||snapshot.sha256!==row.source_sha256||snapshot.name!==row.source_name||snapshot.year!==year)throw Error('The original workbook snapshot could not be verified.');validateLayout(snapshot);this.snapshots.set(year,snapshot);return snapshot;}
+ assertViewPolicy(){const policy=this.viewPolicy;if(!policy)return null;const snapshot=this.source(policy.year);if(!snapshot||String(snapshot.sha256).toLowerCase()!==policy.sourceSha256)throw Error('The private workbook view policy does not match its installed source.');const names=new Set(snapshot.sheets.map(sheet=>sheet.name));if(policy.excludedSheets.some(name=>!names.has(name))||policy.excludedSheets.length>=snapshot.sheets.length)throw Error('The private workbook view policy must retain an installed worksheet and name only original sheets.');return snapshot;}
+ visibleSheets(snapshot){this.assertViewPolicy();return this.viewPolicy?.year===snapshot.year?snapshot.sheets.filter(sheet=>!this.viewPolicy.excludedSheets.includes(sheet.name)):snapshot.sheets;}
+ assertCellVisible(data,year){this.assertViewPolicy();if(this.viewPolicy?.year===year&&this.viewPolicy.excludedSheets.includes(data?.sheet))throw Error('This worksheet has been removed from the Accounting view. Its original records are preserved.');return true;}
  assertEditable(data,year,id){keys(data,['sheet','cell','value'],['sheet','cell','value']);const snapshot=this.source(year);if(!snapshot)throw Error('Install the original workbook before editing cells.');const sheet=snapshot.sheets.find(s=>s.name===data.sheet);if(!sheet)throw Error('Choose an installed worksheet.');const p=address(data.cell);if(p.row>sheet.maxRow||p.col>sheet.maxCol)throw Error('This cell is outside the installed worksheet.');if(id!==cellId(year,data.sheet,data.cell))throw Error('This workbook cell reference does not match the original worksheet.');if(sheet.cells[data.cell]?.formula)throw Error('Formula cells are read-only; edit the original input cells instead.');for(const table of sheet.tables||[]){const box=rectangle(table.ref);if(inside(p,box)&&p.row<box.r1+(table.headerRowCount??1))throw Error('Original table headers are read-only.');}for(const merge of sheet.merges||[]){const box=rectangle(merge);if(inside(p,box)&&(p.row!==box.r1||p.col!==box.c1))throw Error('Edit the first cell of this merged range.');}return true;}
  overrides(year){const values=Object.create(null),edits=Object.create(null);const rows=q(this.db,"SELECT * FROM accounting_register_records WHERE year=? AND kind='sheetcell' ORDER BY id",[year]);for(const row of rows){const record=this.register.verifyRecord(row),d=record.data;this.assertEditable(d,year,record.id);edits[d.sheet]??=Object.create(null);edits[d.sheet][d.cell]={id:record.id,version:record.version,deleted:record.deleted};if(!record.deleted){values[d.sheet]??=Object.create(null);values[d.sheet][d.cell]=d.value;}}return {values,edits,signature:hash(JSON.stringify(rows.map(row=>[row.id,row.version,row.deleted])))};}
  workbook(input){
   this.authorize();keys(input,['year','sheet','filters','showAllRows'],['year']);const year=validYear(input.year),snapshot=this.source(year);if(!snapshot)return {year,available:false};
-  const name=input.sheet??snapshot.activeSheet??snapshot.sheets[0].name;if(typeof name!=='string'||!snapshot.sheets.some(s=>s.name===name))throw Error('Choose an installed worksheet.');
+  const visible=this.visibleSheets(snapshot),visibleNames=new Set(visible.map(sheet=>sheet.name)),activeSheet=visibleNames.has(snapshot.activeSheet)?snapshot.activeSheet:visible[0].name;
+  const name=input.sheet??activeSheet;if(typeof name!=='string'||!visibleNames.has(name))throw Error('Choose a visible installed worksheet.');
   if(input.showAllRows!==undefined&&typeof input.showAllRows!=='boolean')throw Error('Choose valid row visibility.');
   if(input.filters!==undefined&&(!Array.isArray(input.filters)||input.filters.length>32))throw Error('Choose a bounded workbook filter.');
   const changes=this.overrides(year);let sheets=snapshot.sheets.map(s=>{const overrides=changes.values[s.name]||{},missing=Object.keys(overrides).filter(a=>!s.cells[a]);return missing.length?{...s,cells:{...s.cells,...Object.fromEntries(missing.map(a=>[a,{value:null}]))}}:s;});
@@ -46,7 +72,7 @@ class WorkbookStore{
    if(input.showAllRows||input.filters?.length){const hidden=new Set(input.showAllRows?[]:(selected.hiddenRows||[])),filtered=new Set(input.showAllRows?[]:(selected.filteredRows||[]));for(const filter of input.filters||[]){keys(filter,['table','column','values'],['table','column','values']);const table=selected.tables?.find(t=>t.name===filter.table);if(!table||!Number.isInteger(filter.column)||filter.column<0||filter.column>=table.columns.length||!Array.isArray(filter.values)||filter.values.length>2000||filter.values.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v)||typeof v==='string'&&v.length>32767||typeof v==='number'&&!Number.isFinite(v)))throw Error('Choose valid worksheet table filter values.');const box=rectangle(table.ref),col=Model.columnName(box.c1+filter.column),end=box.r2-(table.totalsRowCount||0);const match=v=>filter.values.some(w=>typeof v==='string'&&typeof w==='string'?v.toLowerCase()===w.toLowerCase():v===w);for(let row=box.r1+(table.headerRowCount??1);row<=end;row++){const value=result.values[name][col+row]??null;if(!match(value))filtered.add(row);}}view={...selected,hiddenRows:[...hidden].sort((a,b)=>a-b),filteredRows:[...filtered].sort((a,b)=>a-b)};sheets=sheets.map(s=>s.name===name?view:s);result=Model.calculate({...snapshot,sheets},changes.values);}
    cached={view,result};this.calculations.set(cacheKey,cached);if(this.calculations.size>16)this.calculations.delete(this.calculations.keys().next().value);
   }
-  return {year,available:true,snapshot:{format:snapshot.format,name:snapshot.name,sha256:snapshot.sha256,activeSheet:snapshot.activeSheet,styles:snapshot.styles,sheetIndex:snapshot.sheets.map(s=>({name:s.name,maxRow:s.maxRow,maxCol:s.maxCol,hidden:Boolean(s.hidden),tabColor:s.tabColor??null})),sheets:[cached.view]},values:{[name]:cached.result.values[name]},edits:{[name]:changes.edits[name]??{}},errors:cached.result.errors};
+  return {year,available:true,snapshot:{format:snapshot.format,name:snapshot.name,sha256:snapshot.sha256,activeSheet,styles:snapshot.styles,sheetIndex:visible.map(s=>({name:s.name,maxRow:s.maxRow,maxCol:s.maxCol,hidden:Boolean(s.hidden),tabColor:s.tabColor??null})),sheets:[cached.view]},values:{[name]:cached.result.values[name]},edits:{[name]:changes.edits[name]??{}},errors:cached.result.errors.filter(error=>!this.viewPolicy||this.viewPolicy.year!==year||!this.viewPolicy.excludedSheets.includes(error.sheet))};
  }
 }
-module.exports={initialize,needsMigration,WorkbookStore,validateLayout,cellId};
+module.exports={initialize,needsMigration,WorkbookStore,validateLayout,cellId,POLICY_FILE,readViewPolicy};

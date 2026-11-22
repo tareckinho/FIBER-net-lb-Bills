@@ -279,6 +279,7 @@ class AccountingRegister {
       if(action==='remove'&&existing?.kind==='sheetcell'){if(typeof this.validateCell!=='function')throw Error('The original workbook is unavailable.');this.validateCell(existing.data,existing.year,id);}
       if (action === 'save' && existing && (existing.kind !== input.kind || existing.year !== input.year)) throw Error('An existing Accounting record must keep its original type and year.');
       if (action === 'save' && existing && Object.hasOwn(input, 'source') && JSON.stringify(existing.source ?? null) !== JSON.stringify(input.source)) throw Error('An Accounting record must keep its original source workbook provenance.');
+      if(typeof this.assertCellMutable==='function'){if(action==='save'&&input.kind==='sheetcell')this.assertCellMutable(input.data,input.year);else if(action==='remove'&&existing?.kind==='sheetcell')this.assertCellMutable(existing.data,existing.year);}
       if(action==='save'&&!existing){const cell=input.kind==='sheetcell',limit=cell?50000:MAX_RECORDS_PER_YEAR,count=q(this.db,'SELECT COUNT(*) AS n FROM accounting_register_records WHERE year=? AND deleted=0 AND kind '+(cell?'=':'<>')+' ?',[input.year,'sheetcell'])[0].n;if(count>=limit)throw Error('The Accounting year reached its supported record capacity; no record was added.');}
       const at = timestamp(this.now()), source = existing?.source ?? input.source;
       const record = {

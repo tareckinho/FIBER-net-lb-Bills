@@ -434,8 +434,8 @@
     {
       "file": "backup-archive.cjs",
       "sourceSha256": "b1673a8681df3896a610e72ad0bbac71dfaa34f393294585cb81cec4f6748cb0",
-      "sha256": "bf2c17865e26515507932bd4164d9f58fc92306db48256769a11903577508a37",
-      "reason": "The optional automatic-month-closing journal is included in encrypted backup and verified recovery; old seven-database archives remain supported."
+      "sha256": "1854bd4ebc73459ff99f0132ef8cf47554bbdfb35f08862099afb7fa254b4d40",
+      "reason": "The optional automatic-month-closing journal and private Accounting workbook view policy are included in encrypted backup and verified recovery; old seven-database archives remain supported."
     },
     {
       "file": "bank-accounts.cjs",
