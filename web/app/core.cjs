@@ -43,6 +43,7 @@ const BandwidthDrafts=require('./bandwidth-purchase-drafts.cjs');
 const BandwidthPaymentService=require('./bandwidth-payments.cjs');
 const BandwidthSpending=require('./bandwidth-spending.cjs');
 const AccountingBandwidthSource=require('./accounting-bandwidth-source.cjs');
+const AccountingBandwidthBaseline=require('./accounting-bandwidth-baseline.cjs');
 const FixedMonthlyService=require('./fixed-monthly-payments.cjs');
 const FixedMonthlyCategories=require('./fixed-monthly-categories.cjs');
 const FixedMonthlySpending=require('./fixed-monthly-spending.cjs');
@@ -1768,8 +1769,9 @@ function initializeBusinessSections(SQL) {
   stickyNotes=new StickyNotesService.StickyNotes({db:notesEntry.db,authorize:notesOwner,now:localIso,saveEntry:()=>saveSectionEntry(notesEntry)});
   if(AccountingRegisterService.needsMigration(notesEntry.db)){backupAllSections('before-accounting-register');notesEntry.db.exec('BEGIN');try{AccountingRegisterService.initialize(notesEntry.db);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
   if(AccountingWorkbookStorage.needsMigration(notesEntry.db)){backupAllSections('before-original-accounting-workbook');notesEntry.db.exec('BEGIN');try{AccountingWorkbookStorage.initialize(notesEntry.db);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
-  accountingRegister=new AccountingRegisterService.AccountingRegister({db:notesEntry.db,authorize:accountingAdmin,now:localIso,saveEntry:()=>saveSectionEntry(notesEntry),validateCell:(data,year,id)=>accountingWorkbookStore.assertEditable(data,year,id),assertCellMutable:(data,year)=>accountingWorkbookStore.assertCellVisible(data,year)});
-  accountingWorkbookStore=new AccountingWorkbookStorage.WorkbookStore({db:notesEntry.db,register:accountingRegister,authorize:accountingAdmin,now:localIso,getBandwidthProjection:({year,snapshot})=>AccountingBandwidthSource.project({year,snapshot,entry:workspaceDatabases.get('main'),actor:bandwidthAdmin(),now:localIso}),viewPolicy:AccountingWorkbookStorage.readViewPolicy(pathForRuntime.join(dataDirectory,AccountingWorkbookStorage.POLICY_FILE))});
+  accountingRegister=new AccountingRegisterService.AccountingRegister({db:notesEntry.db,authorize:accountingAdmin,now:localIso,saveEntry:()=>saveSectionEntry(notesEntry),validateCell:(data,year,id)=>accountingWorkbookStore.assertEditable(data,year,id),assertCellMutable:(data,year)=>accountingWorkbookStore.assertCellMutable(data,year)});
+  const accountingBandwidthBaseline=AccountingBandwidthBaseline.readBaseline(pathForRuntime.join(dataDirectory,AccountingBandwidthBaseline.FILE));
+  accountingWorkbookStore=new AccountingWorkbookStorage.WorkbookStore({db:notesEntry.db,register:accountingRegister,authorize:accountingAdmin,now:localIso,getBandwidthProjection:({year,snapshot,overrides,origins})=>AccountingBandwidthSource.project({year,snapshot,overrides,origins,baseline:accountingBandwidthBaseline,entry:workspaceDatabases.get('main'),actor:bandwidthAdmin(),now:localIso}),viewPolicy:AccountingWorkbookStorage.readViewPolicy(pathForRuntime.join(dataDirectory,AccountingWorkbookStorage.POLICY_FILE))});
   if(accountingWorkbookSnapshot){backupAllSections('before-install-accounting-workbook-source');notesEntry.db.exec('BEGIN');try{accountingWorkbookStore.install(accountingWorkbookSnapshot);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
   accountingWorkbookStore.assertViewPolicy();
   if(FixedMonthlyCategories.needsMigration(workspaceDatabases.get('main').db)){
