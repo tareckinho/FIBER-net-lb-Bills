@@ -118,6 +118,8 @@ function project(snapshot,purchases,options={}){
  Model.validateSnapshot(snapshot);demand(plain(options),'invalid projection options.');
  const disabled=()=>({snapshot,signature:hash([FORMAT,'disabled',snapshot.year]),metadata:null,managedCells:{}});
  const program=options.authority==null?null:authority(options.authority);
+ demand(options.programOnly===undefined||typeof options.programOnly==='boolean','program-only ownership must be an explicit boolean.');
+ const programOnly=options.programOnly===true;demand(!programOnly||program,'program-only ownership requires a source-bound program authority.');
  if(!program&&options.baseline==null)return disabled();
  const cutover=program?{year:program.year,sourceSha256:program.sourceSha256,cutoverAt:program.activatedAt,purchases:[]}:baseline(options.baseline);
  if(cutover.year!==snapshot.year||!snapshot.sheets.some(s=>s.name===SHEET))return disabled();
@@ -129,7 +131,7 @@ function project(snapshot,purchases,options={}){
  const byRequest=new Map(all.map(p=>[p.requestId,p])),excluded=new Set(cutover.purchases.map(p=>p.requestId));
  for(const p of cutover.purchases){const current=byRequest.get(p.requestId);demand(current&&hash(current)===p.fingerprint,'a captured baseline receipt is missing or changed; no historical purchase was relinked.');}
  const eligible=all.filter(p=>!excluded.has(p.requestId)),submittedOverrides=overrideMap(options.overrides),overrides=copy(submittedOverrides),origins=originMap(options.origins);
- const ownedMonths=new Set(program?eligible.map(p=>Number(p.purchaseDate.slice(5,7))-1):[]),sourceAccount=snapshot.sheets.find(s=>s.name==='Accounting');
+ const ownedMonths=new Set(program?(programOnly?Array.from({length:12},(_,i)=>i):eligible.map(p=>Number(p.purchaseDate.slice(5,7))-1)):[]),sourceAccount=snapshot.sheets.find(s=>s.name==='Accounting');
  function suppress(sheet,ref){if(overrides[sheet])delete overrides[sheet][ref];}
  if(program){
   for(const month of ownedMonths){
@@ -141,7 +143,7 @@ function project(snapshot,purchases,options={}){
   }
  }
  const recordedAt=new Map(purchases.map(p=>[p.requestId,typeof p.recordedAt==='string'?p.recordedAt:null]));
- const signature=hash([FORMAT,snapshot.year,snapshot.sha256,program||cutover,all,all.map(p=>[p.requestId,recordedAt.get(p.requestId)]),overrides,origins]);
+ const signature=hash([FORMAT,snapshot.year,snapshot.sha256,program||cutover,programOnly,options.identities??null,all,all.map(p=>[p.requestId,recordedAt.get(p.requestId)]),overrides,origins]);
  const beforeValues=Model.calculate(snapshot,overrides).values;
  for(const p of eligible)demand(!/[*?~]/.test(p.supplierName)&&!/^\s*[<>=]/.test(p.supplierName),'the future supplier name requires a reviewed literal alias.');
  const originalByName=new Map(snapshot.sheets.map(s=>[s.name,s])),copies=new Map(),managed=new Map(),styles=[...(snapshot.styles||[])],styleCache=new Map(),runMaps=new Map(),original=originalByName.get(SHEET);
@@ -166,6 +168,7 @@ function project(snapshot,purchases,options={}){
   const id=styleAt(s,row,Model.columnNumber(col));cell.styleId=kind?adjusted(id,kind):id;
   writableSheet(s).cells[ref]=cell;if(!managed.has(s.name))managed.set(s.name,new Set());managed.get(s.name).add(ref);
  }
+ const reclaimedMonthly=new Set(),reclaimedAnnual=new Set();
  const uniqueNames=[...new Map(all.map(p=>[nameKey(p.supplierName),p.supplierName])).values()];
  const unambiguous=(pattern,name)=>uniqueNames.filter(n=>criteria(n,pattern)).every(n=>nameKey(n)===nameKey(name));
 
@@ -194,6 +197,7 @@ function project(snapshot,purchases,options={}){
   }return counterfactuals.get(key);
  }
  function providerRowIsSafe(s,row,name,monthIndex){
+  if(programOnly&&reclaimedMonthly.has(s.name+':'+row))return true;
   const state=ownership(s,row,'C',firstReceipt(name,monthIndex));if(!state.safe)return false;
   const without=beforeWithoutOwnedRow(s,row,state);
   for(let col=1;col<=Math.min(s.maxCol||14,14);col++){
@@ -210,12 +214,37 @@ function project(snapshot,purchases,options={}){
    if(!state.post&&!zero(value))return false;
   }return true;
  }
+ if(programOnly&&options.identities!==undefined){
+  demand(plain(options.identities)&&Array.isArray(options.identities.suppliers)&&options.identities.suppliers.length<=100000,'choose the verified program supplier roster.');
+  const roster=new Map();
+  function remember(id,name){integer(id,'program supplier ID');text(name,'program supplier name',160);demand(!/[*?~]/.test(name)&&!/^\s*[<>=]/.test(name),'the supplier requires a reviewed literal alias.');if(!roster.has(id))roster.set(id,new Set());roster.get(id).add(name);}
+  const ids=new Set();for(const value of options.identities.suppliers){demand(plain(value)&&!ids.has(value.id),'duplicate program supplier identity.');ids.add(value.id);remember(value.id,value.name);}for(const value of all)remember(value.supplierId,value.supplierName);
+  const matches=label=>[...roster].filter(([,names])=>typeof label==='string'&&[...names].some(name=>literalAnnualAlias(label,name)&&criteria(name,label))).map(([id])=>id);
+  function clearInput(sheet,ref){const address=/^([A-Z]+)([1-9]\d*)$/.exec(ref);demand(address,'choose an original input cell.');suppress(sheet.name,ref);put(sheet,address[1],Number(address[2]),null);}
+  function formula(sheet,ref,value){suppress(sheet.name,ref);const originalCell=(copies.get(sheet.name)||sheet).cells[ref]||{},next={...originalCell,value:null,formula:value,editable:false,styleId:styleAt(sheet,Number(ref.match(/\d+$/)[0]),Model.columnNumber(ref.match(/^[A-Z]+/)[0]))};delete next.error;delete next.display;writableSheet(sheet).cells[ref]=next;if(!managed.has(sheet.name))managed.set(sheet.name,new Set());managed.get(sheet.name).add(ref);}
+  for(let month=0;month<12;month++){
+   const sheet=originalByName.get(MONTHS[month]);demand(sheet,'the original month is required.');const seen=new Set(),first=3+24*month,last=22+24*month;
+   for(let row=2;row<=Math.min(200,sheet.maxRow);row++){
+    const kind=effective(sheet,'B'+row),oldFormula=sheet.cells['D'+row]?.formula,isp=typeof kind==='string'&&kind.trim().toLowerCase()==='isp'||typeof oldFormula==='string'&&oldFormula.replace(/\s+/g,'').toLowerCase().includes('sumif(bandwidth!');if(!isp)continue;
+    const matched=matches(effective(sheet,'C'+row));demand(matched.length<=1,'the imported supplier matches more than one program identity.');const duplicate=matched.length&&seen.has(matched[0]);
+    if(!matched.length||duplicate){
+     reclaimedMonthly.add(sheet.name+':'+row);if(!/^(?:no\.?|number|#)$/i.test(String(sheet.cells.A1?.value??'').trim()))clearInput(sheet,'A'+row);clearInput(sheet,'C'+row);for(let column=5;column<=13;column++)clearInput(sheet,Model.columnName(column)+row);
+    }else seen.add(matched[0]);
+    formula(sheet,'D'+row,'=IF(C'+row+'<>"",SUMIF(Bandwidth!C'+first+':C'+last+',C'+row+',Bandwidth!G'+first+':G'+last+'),"")*-1');
+   }
+  }
+  const account=originalByName.get('Accounting');demand(account,'the original Accounting sheet is required.');const seen=new Set();
+  for(let row=2;row<=Math.min(11,account.maxRow);row++){
+   const matched=matches(effective(account,'A'+row));demand(matched.length<=1,'the annual supplier matches several program identities.');
+   if(!matched.length||seen.has(matched[0])){reclaimedAnnual.add(row);for(let column=1;column<=16;column++)clearInput(account,Model.columnName(column)+row);}else seen.add(matched[0]);
+  }
+ }
  function connect(monthIndex,name,first,last){
   const monthSheet=originalByName.get(MONTHS[monthIndex]),account=originalByName.get('Accounting');
   demand(monthSheet&&account,'the connected monthly and Accounting worksheets are required.');
   const providerRows=[];
   for(let row=2;row<=Math.min(monthSheet.maxRow||200,200);row++){
-   const f=monthSheet.cells['D'+row]?.formula;if(typeof f!=='string')continue;
+   const f=(copies.get(monthSheet.name)||monthSheet).cells['D'+row]?.formula;if(typeof f!=='string')continue;
    const normalized=f.replace(/\$/g,'').replace(/'Bandwidth'!/gi,'Bandwidth!').replace(/\s+/g,'').toLowerCase();
    if(normalized.includes('sumif(bandwidth!c'+first+':c'+last+',c'+row+',bandwidth!g'+first+':g'+last+')'))providerRows.push(row);
   }
@@ -239,7 +268,7 @@ function project(snapshot,purchases,options={}){
   else{
    const row=Array.from({length:Math.max(0,Math.min(11,account.maxRow||11)-1)},(_,i)=>i+2).find(r=>{
     const v=effective(account,'A'+r),state=ownership(account,r,'A',firstReceipt(name));
-    if(!(zero(v)||stars(v))||account.cells['A'+r]?.formula||!state.safe)return false;
+    if(!(zero(v)||stars(v))||account.cells['A'+r]?.formula)return false;if(programOnly&&reclaimedAnnual.has(r))return true;if(!state.safe)return false;
     const without=beforeWithoutOwnedRow(account,r,state);
     for(let col=2;col<=16;col++){const ref=Model.columnName(col)+r,raw=account.cells[ref]?.value;if(!zero(raw)||!zero(without[ref])||!state.post&&!zero(effective(account,ref)))return false;}return true;
    });
@@ -247,7 +276,7 @@ function project(snapshot,purchases,options={}){
   }
  }
  const metadata={sheet:SHEET,mode:'in_place',basis:'purchase_cost',signature,cutoverAt:cutover.cutoverAt,baselineCount:cutover.purchases.length,count:eligible.length,totalCents:centsSum(eligible),generatedStartRow:null,months:[],purchases:[]};
- if(program)Object.assign(metadata,{policy:'program_months',activatedAt:program.activatedAt,programmeTotalCents:centsSum(eligible)});
+ if(program)Object.assign(metadata,{policy:programOnly?'program_only':'program_months',activatedAt:program.activatedAt,programmeTotalCents:centsSum(eligible)});
  for(let month=0;month<12;month++){
   const first=3+24*month,last=22+24*month,total=23+24*month,key=snapshot.year+'-'+String(month+1).padStart(2,'0'),rows=eligible.filter(p=>p.purchaseDate.slice(0,7)===key),free=[];
   for(let row=first;row<=last;row++){
@@ -260,6 +289,7 @@ function project(snapshot,purchases,options={}){
   let allocations=rows.map(p=>[p]);
   if(rows.length>free.length){const groups=new Map();for(const p of rows){const key=nameKey(p.supplierName);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);}allocations=[...groups.values()];}
   demand(allocations.length<=free.length,'not enough safe original monthly rows for future supplier purchases; no imported row was overwritten or receipt truncated.');
+  if(programOnly)put(original,'C',total,0,'usd');
   const rowProof=[],detail=[];
   allocations.forEach((group,index)=>{
    const row=free[index],p=group[0],grouped=group.length>1;connect(month,p.supplierName,first,last);

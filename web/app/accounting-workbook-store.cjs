@@ -26,6 +26,13 @@ function readViewPolicy(file){
   const parsed=JSON.parse(buffer.subarray(0,length).toString('utf8').replace(/^\uFEFF/,''));if(parsed===null)throw Error('shape');return viewPolicy(parsed);
  }catch{throw Error('The private workbook view policy is invalid or could not be read.');}finally{if(descriptor!==undefined)fs.closeSync(descriptor);}
 }
+function monthlyView(metadata,name,visibleNames){
+ if(!metadata)return null;
+ const envelope={year:metadata.year,policy:metadata.policy,signature:metadata.signature};
+ if(name==='Accounting'){const months=metadata.months.filter(month=>visibleNames.has(month.sheet)).map(({month,sheet,source,ownsSupplierPayments,ownsResellerLedger,supplierPaymentCents,resellerAddedCents,resellerCollectionCents})=>({month,sheet,source,ownsSupplierPayments,ownsResellerLedger,supplierPaymentCents,resellerAddedCents,resellerCollectionCents}));return months.length?{...envelope,months}:null;}
+ const month=metadata.months.find(value=>value.sheet===name);
+ return month&&visibleNames.has(name)?{...envelope,...month}:null;
+}
 function keys(v,allowed,required=[]){if(!plain(v)||Object.keys(v).some(k=>!allowed.includes(k))||required.some(k=>!Object.hasOwn(v,k)))throw Error('Choose valid workbook request fields.');}
 function validYear(y){if(!Number.isInteger(y)||y<2000||y>2099)throw Error('Choose a workbook year from 2000 through 2099.');return y;}
 function address(a){const m=typeof a==='string'&&/^([A-Z]{1,3})([1-9]\d{0,6})$/.exec(a);if(!m)throw Error('Choose a valid worksheet cell.');const col=Model.columnNumber(m[1]),row=Number(m[2]);if(col>16384||row>1048576)throw Error('Choose a valid worksheet cell.');return {col,row};}
@@ -60,7 +67,7 @@ class WorkbookStore{
  assertCellMutable(data,year){
   this.assertCellVisible(data,year);const snapshot=this.source(year);if(!snapshot)throw Error('Install the original workbook before editing cells.');
   const changes=this.overrides(year),projected=this.projection(year,snapshot,changes);
-  if((projected.managedCells?.[data?.sheet]||[]).includes(data?.cell))throw Error('This cell is linked to a saved bandwidth purchase. Change the original purchase workflow instead.');
+  if((projected.managedCells?.[data?.sheet]||[]).includes(data?.cell))throw Error(projected.monthlyMetadata?'This cell is linked to saved program records. Change the original entry in its business form instead.':'This cell is linked to a saved bandwidth purchase. Change the original purchase workflow instead.');
   const aliases=Object.entries(projected.managedCells||{}).filter(([name])=>name!=='Bandwidth').flatMap(([name,refs])=>refs.filter(ref=>name==='Accounting'?/^A[1-9]\d*$/.test(ref):/^C[1-9]\d*$/.test(ref)).map(ref=>[name,ref]));
   if(aliases.length){
    // A new date or payment must keep the supplier label that the operator saw.
@@ -92,7 +99,7 @@ class WorkbookStore{
    if(input.showAllRows||input.filters?.length){const hidden=new Set(input.showAllRows?[]:(selected.hiddenRows||[])),filtered=new Set(input.showAllRows?[]:(selected.filteredRows||[]));for(const filter of input.filters||[]){keys(filter,['table','column','values'],['table','column','values']);const table=selected.tables?.find(t=>t.name===filter.table);if(!table||!Number.isInteger(filter.column)||filter.column<0||filter.column>=table.columns.length||!Array.isArray(filter.values)||filter.values.length>2000||filter.values.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v)||typeof v==='string'&&v.length>32767||typeof v==='number'&&!Number.isFinite(v)))throw Error('Choose valid worksheet table filter values.');const box=rectangle(table.ref),col=Model.columnName(box.c1+filter.column),end=box.r2-(table.totalsRowCount||0);const match=v=>filter.values.some(w=>typeof v==='string'&&typeof w==='string'?v.toLowerCase()===w.toLowerCase():v===w);for(let row=box.r1+(table.headerRowCount??1);row<=end;row++){const value=result.values[name][col+row]??null;if(!match(value))filtered.add(row);}}view={...selected,hiddenRows:[...hidden].sort((a,b)=>a-b),filteredRows:[...filtered].sort((a,b)=>a-b)};sheets=sheets.map(s=>s.name===name?view:s);result=Model.calculate({...projected,sheets},calculationOverrides);}
    cached={view,result};this.calculations.set(cacheKey,cached);if(this.calculations.size>16)this.calculations.delete(this.calculations.keys().next().value);
   }
-  return {year,available:true,bandwidth:name==='Bandwidth'&&visibleNames.has(name)?projection.metadata:null,managedCells:projection.managedCells?.[name]??[],snapshot:{format:snapshot.format,name:snapshot.name,sha256:snapshot.sha256,activeSheet,styles:projected.styles,sheetIndex:visible.map(s=>({name:s.name,maxRow:projected.sheets.find(p=>p.name===s.name).maxRow,maxCol:s.maxCol,hidden:Boolean(s.hidden),tabColor:s.tabColor??null})),sheets:[cached.view]},values:{[name]:cached.result.values[name]},edits:{[name]:changes.edits[name]??{}},errors:cached.result.errors.filter(error=>!this.viewPolicy||this.viewPolicy.year!==year||!this.viewPolicy.excludedSheets.includes(error.sheet))};
+  return {year,available:true,...(projection.monthlyMetadata?{monthly:monthlyView(projection.monthlyMetadata,name,visibleNames)}:{}),bandwidth:name==='Bandwidth'&&visibleNames.has(name)?projection.metadata:null,managedCells:projection.managedCells?.[name]??[],snapshot:{format:snapshot.format,name:snapshot.name,sha256:snapshot.sha256,activeSheet,styles:projected.styles,sheetIndex:visible.map(s=>({name:s.name,maxRow:projected.sheets.find(p=>p.name===s.name).maxRow,maxCol:s.maxCol,hidden:Boolean(s.hidden),tabColor:s.tabColor??null})),sheets:[cached.view]},values:{[name]:cached.result.values[name]},edits:{[name]:changes.edits[name]??{}},errors:cached.result.errors.filter(error=>!this.viewPolicy||this.viewPolicy.year!==year||!this.viewPolicy.excludedSheets.includes(error.sheet))};
  }
 }
 module.exports={initialize,needsMigration,WorkbookStore,validateLayout,cellId,POLICY_FILE,readViewPolicy};

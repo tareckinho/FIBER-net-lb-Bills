@@ -43,8 +43,12 @@ const BandwidthDrafts=require('./bandwidth-purchase-drafts.cjs');
 const BandwidthPaymentService=require('./bandwidth-payments.cjs');
 const BandwidthSpending=require('./bandwidth-spending.cjs');
 const AccountingBandwidthSource=require('./accounting-bandwidth-source.cjs');
+const AccountingBandwidthProjection=require('./accounting-bandwidth.cjs');
 const AccountingBandwidthBaseline=require('./accounting-bandwidth-baseline.cjs');
 const AccountingBandwidthAuthority=require('./accounting-bandwidth-authority.cjs');
+const AccountingMonthlyAuthority=require('./accounting-monthly-authority.cjs');
+const AccountingMonthlySource=require('./accounting-monthly-source.cjs');
+const AccountingMonthly=require('./accounting-monthly.cjs');
 const FixedMonthlyService=require('./fixed-monthly-payments.cjs');
 const FixedMonthlyCategories=require('./fixed-monthly-categories.cjs');
 const FixedMonthlySpending=require('./fixed-monthly-spending.cjs');
@@ -1773,7 +1777,19 @@ function initializeBusinessSections(SQL) {
   accountingRegister=new AccountingRegisterService.AccountingRegister({db:notesEntry.db,authorize:accountingAdmin,now:localIso,saveEntry:()=>saveSectionEntry(notesEntry),validateCell:(data,year,id)=>accountingWorkbookStore.assertEditable(data,year,id),assertCellMutable:(data,year)=>accountingWorkbookStore.assertCellMutable(data,year)});
   const accountingBandwidthBaseline=AccountingBandwidthBaseline.readBaseline(pathForRuntime.join(dataDirectory,AccountingBandwidthBaseline.FILE));
   const accountingBandwidthAuthority=AccountingBandwidthAuthority.readAuthority(pathForRuntime.join(dataDirectory,AccountingBandwidthAuthority.FILE));
-  accountingWorkbookStore=new AccountingWorkbookStorage.WorkbookStore({db:notesEntry.db,register:accountingRegister,authorize:accountingAdmin,now:localIso,getBandwidthProjection:({year,snapshot,overrides,origins})=>AccountingBandwidthSource.project({year,snapshot,overrides,origins,baseline:accountingBandwidthBaseline,authority:accountingBandwidthAuthority,entry:workspaceDatabases.get('main'),actor:bandwidthAdmin(),now:localIso}),viewPolicy:AccountingWorkbookStorage.readViewPolicy(pathForRuntime.join(dataDirectory,AccountingWorkbookStorage.POLICY_FILE))});
+  const accountingMonthlyAuthority=AccountingMonthlyAuthority.readAuthority(pathForRuntime.join(dataDirectory,AccountingMonthlyAuthority.FILE));
+  const accountingProjection=({year,snapshot,overrides,origins})=>{
+    const monthly=accountingMonthlyAuthority?.year===year?accountingMonthlyAuthority:null;
+    if(monthly&&(!accountingBandwidthAuthority||accountingBandwidthAuthority.year!==year||accountingBandwidthAuthority.sourceSha256!==monthly.sourceSha256))throw Error('The monthly Accounting policy requires its matching verified bandwidth source policy.');
+    const actor=bandwidthAdmin();
+    if(!monthly)return AccountingBandwidthSource.project({year,snapshot,overrides,origins,baseline:accountingBandwidthBaseline,authority:accountingBandwidthAuthority,entry:workspaceDatabases.get('main'),actor,now:localIso});
+    const verified=AccountingMonthlySource.read({year,entries:workspaceDatabases,actor,now:localIso});
+    if(!Array.isArray(verified.purchases))throw Error('The verified monthly bandwidth purchase source is unavailable.');
+    const base=AccountingBandwidthProjection.project(snapshot,verified.purchases,{baseline:accountingBandwidthBaseline,authority:accountingBandwidthAuthority,overrides,origins,programOnly:monthly.mode==='program_only',identities:verified.identities});
+    const projected=AccountingMonthly.project(base,{...verified.streams,identities:verified.identities},{authority:monthly,overrides,origins});
+    return {...projected,signature:crypto.createHash('sha256').update(JSON.stringify([projected.signature,verified.signature])).digest('hex')};
+  };
+  accountingWorkbookStore=new AccountingWorkbookStorage.WorkbookStore({db:notesEntry.db,register:accountingRegister,authorize:accountingAdmin,now:localIso,getBandwidthProjection:accountingProjection,viewPolicy:AccountingWorkbookStorage.readViewPolicy(pathForRuntime.join(dataDirectory,AccountingWorkbookStorage.POLICY_FILE))});
   if(accountingWorkbookSnapshot){backupAllSections('before-install-accounting-workbook-source');notesEntry.db.exec('BEGIN');try{accountingWorkbookStore.install(accountingWorkbookSnapshot);notesEntry.db.exec('COMMIT');}catch(error){notesEntry.db.exec('ROLLBACK');throw error;}saveSectionEntry(notesEntry);}
   accountingWorkbookStore.assertViewPolicy();
   if(FixedMonthlyCategories.needsMigration(workspaceDatabases.get('main').db)){

@@ -237,3 +237,31 @@ test('authority is source-bound and strict, while an empty program year leaves e
 });
 
 module.exports={fixture,receipt,baseline,authority};
+
+test('explicit program-only bandwidth removes imported costs from every original month without changing geometry or source',()=>{
+ const original=fixture(),before=JSON.stringify(original),p=receipt(25,{purchaseDate:'2026-11-12'}),authority={format:'FIBERNETLB-ACCOUNTING-BANDWIDTH-AUTHORITY-1',year:2026,sourceSha256:original.sha256,mode:'program_months',activatedAt:'2026-11-23T08:00:00.000Z'};
+ const projected=project(original,[p],{authority,programOnly:true,overrides:{Bandwidth:{D3:999,H3:'Preserved margin note'}}}),calculated=Model.calculate(projected.snapshot,projected.calculationOverrides);
+ assert.equal(projected.metadata.policy,'program_only');assert.equal(projected.metadata.count,1);assert.equal(projected.managedCells.Bandwidth.length,12*20*6+12);assert.equal(projected.metadata.months.filter(m=>m.source==='program').length,12);
+ for(let month=0;month<12;month++){const info=projected.metadata.months[month];assert.equal(info.monthlyTotalCents,month===10?p.totalCents:0);assert.equal(calculated.values.Bandwidth['C'+(23+24*month)],0,'Unrepresented imported reseller income cannot leak into a program-only bandwidth balance.');assert.equal(calculated.values.Bandwidth['G'+(23+24*month)],month===10?p.totalCents/100:0);}
+ assert.equal(calculated.values.Bandwidth.H3,'Preserved margin note');assert.equal(projected.calculationOverrides.Bandwidth.D3,undefined);assert.equal(projected.snapshot.sheets[0].maxRow,288);assert.deepEqual(projected.snapshot.sheets[0].tables,original.sheets[0].tables);assert.equal(JSON.stringify(original),before);
+ const ordinary=project(original,[p],{authority});assert.equal(ordinary.metadata.months[0].source,'imported');assert.equal(ordinary.metadata.months[0].monthlyTotalCents,600);assert.notEqual(ordinary.signature,projected.signature);
+});
+test('program-only bandwidth requires explicit source-bound authority and a boolean ownership switch',()=>{
+ const original=fixture(),authority={format:'FIBERNETLB-ACCOUNTING-BANDWIDTH-AUTHORITY-1',year:2026,sourceSha256:original.sha256,mode:'program_months',activatedAt:'2026-11-23T08:00:00.000Z'};
+ assert.throws(()=>project(original,[],{baseline:baseline(),programOnly:true}),/requires a source-bound/);assert.throws(()=>project(original,[],{authority,programOnly:'true'}),/explicit boolean/);
+ const empty=project(original,[],{authority,programOnly:true});assert.equal(empty.metadata.count,0);assert.equal(empty.managedCells.Bandwidth.length,1452);assert(empty.metadata.months.every(m=>m.monthlyTotalCents===0));
+});
+
+test('program-only verified identities reclaim filled orphan slots before linking and repair literal supplier costs',()=>{
+ const original=fixture(),before=JSON.stringify(original),jan=original.sheets.find(s=>s.name==='Jan'),account=original.sheets.find(s=>s.name==='Accounting');
+ for(let row=2;row<=11;row++){jan.cells['C'+row]={value:'Imported orphan '+row};jan.cells['E'+row]={value:'Old cash label'};jan.cells['G'+row]={value:-900};jan.cells['M'+row]={value:-900};jan.cells['D'+row]={value:-500};account.cells['A'+row]={value:'**Imported orphan '+row};account.cells['O'+row]={value:-900};}
+ const sourceBefore=JSON.stringify(original),authority={format:'FIBERNETLB-ACCOUNTING-BANDWIDTH-AUTHORITY-1',year:2026,sourceSha256:original.sha256,mode:'program_months',activatedAt:'2026-11-23T08:00:00.000Z'},p=receipt(81,{supplierName:'Verified new supplier'});
+ const out=project(original,[p],{authority,programOnly:true,identities:{suppliers:[{id:p.supplierId,name:p.supplierName,active:true}]},overrides:{Jan:{C2:'Imported orphan 2',G2:-900}},origins:{Jan:{C2:{createdAt:'2026-01-01T10:00:00',deleted:false},G2:{createdAt:'2026-01-01T10:00:00',deleted:false}}}}),calc=Model.calculate(out.snapshot,out.calculationOverrides);
+ assert.equal(calc.values.Jan.C2,p.supplierName);assert.equal(calc.values.Jan.D2,-p.totalCents/100);assert.equal(calc.values.Accounting.B2,-p.totalCents/100);assert.equal(out.calculationOverrides.Jan.G2,undefined);assert(out.managedCells.Jan.includes('C2'));assert(out.managedCells.Accounting.includes('A2'));assert.equal(JSON.stringify(original),sourceBefore);assert.notEqual(sourceBefore,before);
+});
+test('program-only supplier identity cleanup counts duplicated imported labels once without deleting known accounts',()=>{
+ const original=fixture(),jan=original.sheets.find(s=>s.name==='Jan'),account=original.sheets.find(s=>s.name==='Accounting');jan.cells.C2.value='Future ISP';jan.cells.C3.value='Future ISP';account.cells.A2.value='**Future ISP';account.cells.A3.value='**Future ISP';
+ const authority={format:'FIBERNETLB-ACCOUNTING-BANDWIDTH-AUTHORITY-1',year:2026,sourceSha256:original.sha256,mode:'program_months',activatedAt:'2026-11-23T08:00:00.000Z'},p=receipt(82),out=project(original,[p],{authority,programOnly:true,identities:{suppliers:[{id:p.supplierId,name:p.supplierName,active:true}]}}),calc=Model.calculate(out.snapshot,out.calculationOverrides);
+ assert.equal(calc.values.Jan.C2,'Future ISP');assert.equal(calc.values.Jan.C3,null);assert.equal(calc.values.Jan.D2,-p.totalCents/100);assert.equal(calc.values.Accounting.A2,'**Future ISP');assert.equal(calc.values.Accounting.A3,null);assert.equal(calc.values.Accounting.B2,-p.totalCents/100);
+ assert.throws(()=>project(original,[p],{authority,programOnly:true,identities:{suppliers:[{id:1,name:'One'},{id:1,name:'Two'}]}}),/duplicate program supplier identity/);
+});
