@@ -181,4 +181,59 @@ test('existing comparison or broad wildcard provider criteria cannot silently du
  assert.throws(()=>project(freeze(source),[receipt(22)],{baseline:baseline()}),/provider criterion/);
 });
 
-module.exports={fixture,receipt,baseline};
+function authority(changes={}){return {format:'FIBERNETLB-ACCOUNTING-BANDWIDTH-AUTHORITY-1',year:2026,sourceSha256:'a'.repeat(64),mode:'program_months',activatedAt:'2026-06-15T08:00:00.000Z',...changes};}
+test('program authority replaces represented imported months, includes captured receipts once and preserves unrelated history and payments',()=>{
+ const source=fixture(),bw=by(source,'Bandwidth'),annual=by(source,'Accounting');
+ bw.cells.C219={value:'Legacy ISP',styleId:0};bw.cells.D219={value:5};bw.cells.F219={value:10};bw.cells.G219.value=50;
+ bw.cells.C220={value:'Removed old supplier'};bw.cells.G220={value:9};annual.cells.K3={value:77};annual.cells.O3={value:12};
+ const p=receipt(1,{purchaseDate:'2026-10-12'}),overrides={Bandwidth:{C219:'Saved legacy edit',G220:999,H219:'Margin note',F3:4},Accounting:{K3:321,O3:15,B12:200}};
+ const origins={Bandwidth:{G220:{createdAt:'2026-06-01T10:00:00',deleted:false}}},options=freeze({authority:authority(),baseline:baseline([p]),overrides,origins});
+ const before=JSON.stringify(source),saved=JSON.stringify(options),result=project(freeze(source),[p],options),sheet=by(result.snapshot,'Bandwidth'),values=Model.calculate(result.snapshot,result.calculationOverrides).values;
+ assert.equal(result.metadata.policy,'program_months');assert.equal(result.metadata.count,1);assert.equal(result.metadata.programmeTotalCents,200);
+ assert.equal(values.Bandwidth.G239,2);assert.equal(values.Accounting.K3,-2);assert.equal(values.Accounting.O3,15);assert.equal(values.Accounting.B12,200);
+ assert.equal(values.Bandwidth.G23,8);assert.equal(values.Bandwidth.H219,'Margin note');assert.deepEqual(sheet.cells.C3,source.sheets[0].cells.C3);
+ assert.equal(sheet.cells.C219.value,'Future ISP');assert.equal(sheet.cells.C220.value,null);assert.equal(sheet.cells.G220.value,null);assert.ok(!Object.hasOwn(sheet.cells.G220,'formula'));
+ for(let row=219;row<=238;row++)for(const col of ['B','C','D','E','F','G']){assert.ok(result.managedCells.Bandwidth.includes(col+row));assert.equal(sheet.cells[col+row].editable,false);}
+ assert.equal(result.metadata.months[9].source,'program');assert.equal(result.metadata.months[0].source,'imported');assert.equal(result.metadata.months[9].actualMonthlyTotalCents,200);
+ assert.ok(!Object.hasOwn(result.calculationOverrides.Bandwidth,'C219'));assert.ok(!Object.hasOwn(result.calculationOverrides.Accounting,'K3'));
+ assert.equal(sheet.maxRow,bw.maxRow);assert.deepEqual(sheet.tables,bw.tables);assert.deepEqual(sheet.cells.G239,bw.cells.G239);assert.deepEqual(by(result.snapshot,'Accounting').cells.O3,annual.cells.O3);
+ assert.equal(JSON.stringify(source),before);assert.equal(JSON.stringify(options),saved);assert.equal(Model.calculate(result.snapshot,result.calculationOverrides).errors.length,0);
+});
+test('program authority repairs missing and wrong monthly annual supplier formulas in all twelve original month columns',()=>{
+ const source=fixture(),annual=by(source,'Accounting');annual.cells.B3={value:0};delete annual.cells.G3;annual.cells.C3={value:0,formula:'=SUMIF(Jan!C2:C200,A3,Jan!D2:D200)'};
+ const purchases=MONTHS.map((name,m)=>receipt(m+1,{purchaseDate:'2026-'+String(m+1).padStart(2,'0')+'-12',unitPriceCents:101+m,totalCents:101+m}));
+ const overrides={Accounting:{B3:999,G3:555,O3:7,B12:123}},result=project(freeze(source),purchases,{authority:authority(),baseline:baseline(purchases),overrides}),values=Model.calculate(result.snapshot,result.calculationOverrides).values;
+ for(let m=0;m<12;m++){
+  const col=Model.columnName(m+2),ref=col+'3',cost=(101+m)/100;
+  assert.ok(Math.abs(values.Accounting[ref]+cost)<1e-10,ref);assert.ok(Math.abs(values.Bandwidth['G'+(23+24*m)]-cost)<1e-10);
+  assert.equal(by(result.snapshot,'Accounting').cells[ref].formula,'=IF(A3<>"",SUMIF('+MONTHS[m]+'!C2:C200,A3,'+MONTHS[m]+'!D2:D200),"")');
+  assert.equal(by(result.snapshot,'Accounting').cells[ref].editable,false);assert.ok(result.managedCells.Accounting.includes(ref));
+ }
+ assert.equal(values.Accounting.O3,7);assert.equal(values.Accounting.B12,123);assert.deepEqual(by(result.snapshot,'Accounting').cells.O3,annual.cells.O3);assert.equal(result.metadata.count,12);
+ assert.equal(Model.calculate(result.snapshot,result.calculationOverrides).errors.length,0);
+});
+test('authority activation is the minimum local Beirut alias ownership time, preserving earlier cash and later provider association',()=>{
+ const source=fixture(),p=receipt(1,{recordedAt:'2026-06-01T10:00:00'}),old={E3:{createdAt:'2026-06-15T10:59:59',deleted:true}};
+ const first=project(source,[p],{authority:authority(),origins:{Jan:old}});assert.equal(by(first.snapshot,'Jan').cells.C4.value,'Future ISP');
+ const origins={Jan:{...old,E4:{createdAt:'2026-06-15T11:00:01',deleted:false}}},overrides={Jan:{E4:1}};
+ const next=project(source,[p],{authority:authority(),overrides,origins}),values=Model.calculate(next.snapshot,next.calculationOverrides).values;
+ assert.equal(by(next.snapshot,'Jan').cells.C4.value,'Future ISP');assert.equal(values.Jan.M4,1);assert.equal(values.Accounting.B3,-2);
+ const ambiguous=project(source,[p],{authority:authority(),overrides,origins:{Jan:{...old,E4:{createdAt:'2026-06-15T11:00:00',deleted:false}}}});
+ assert.equal(by(ambiguous.snapshot,'Jan').cells.C5.value,'Future ISP');assert.equal(Model.calculate(ambiguous.snapshot,ambiguous.calculationOverrides).values.Jan.E4,1);
+});
+test('authority overflow uses twenty original slots and supplier groups without truncating equal-valued receipts',()=>{
+ const purchases=Array.from({length:24},(_,i)=>receipt(i+1,{supplierName:i%2?'Future ISP':'Legacy ISP',quantityMicros:500000,unitPriceCents:1,totalCents:1}));
+ const source=freeze(fixture()),result=project(source,purchases,{authority:authority(),baseline:baseline(purchases)}),values=Model.calculate(result.snapshot,result.calculationOverrides).values;
+ assert.equal(result.metadata.count,24);assert.equal(result.metadata.months[0].rows.length,24);assert.equal(new Set(result.metadata.months[0].rows.map(p=>p.row)).size,2);
+ assert.equal(values.Bandwidth.G23,.24);assert.equal(values.Accounting.B2,-.12);assert.equal(values.Accounting.B3,-.12);assert.equal(result.managedCells.Bandwidth.length,120);
+ const tooMany=Array.from({length:21},(_,i)=>receipt(i+1,{supplierName:'Unique ISP '+i}));assert.throws(()=>project(source,tooMany,{authority:authority()}),/not enough safe original monthly rows/);
+});
+test('authority is source-bound and strict, while an empty program year leaves every imported month intact',()=>{
+ const source=freeze(fixture()),result=project(source,[],{authority:authority(),overrides:{Bandwidth:{F3:4}}});
+ assert.strictEqual(result.snapshot,source);assert.equal(result.metadata.count,0);assert.ok(result.metadata.months.every(m=>m.source==='imported'));assert.equal(result.calculationOverrides.Bandwidth.F3,4);
+ assert.throws(()=>project(source,[],{authority:authority({sourceSha256:'b'.repeat(64)})}),/does not match/);
+ for(const extra of [{mode:'future'},{activatedAt:'2026-06-15T08:00:00Z'},{activatedAt:'2026-02-30T08:00:00.000Z'},{extra:true}])assert.throws(()=>project(source,[],{authority:authority(extra)}),/authority/);
+ assert.equal(project(source,[],{authority:authority({year:2027})}).metadata,null);
+});
+
+module.exports={fixture,receipt,baseline,authority};

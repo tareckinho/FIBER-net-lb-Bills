@@ -88,7 +88,7 @@ Accounting → Bandwidth includes read-only monthly tables linked to saved opera
 
 The linked tables follow the original worksheet styling and expand past twenty purchases without moving existing cells. Each has its own exact receipt-cost total. Original Excel entries and totals stay intact because an imported entry may already describe the same purchase. No extra expense, supplier payment or cash movement is posted by viewing Accounting. Corrections belong to the original purchase workflow. Unsaved or damaged purchase sources stop the automatic view until the original result is checked.
 
-## Automatic bandwidth purchases in the original forms (0.1.23)
+## Historical future-only behavior (0.1.23)
 
 New saved bandwidth purchases fill unused rows inside the original monthly Bandwidth tables. Their exact rounded purchase cost feeds the existing monthly totals, budget balance and supplier formulas, and the Accounting year summary. Original columns, table coordinates and imported values remain in place. The extra monthly tables from 0.1.22 are removed from the current view.
 
@@ -97,3 +97,13 @@ The owner chose to keep imported amounts and add only future purchases. A privat
 Automatic cells and newly filled supplier-name placeholders are read-only. Existing input edits, saved-request recovery and recorded payments remain protected. If future receipts exceed a month's remaining rows, they are grouped by saved supplier name with an exact summed cost. Mixed quantities and prices remain blank in grouped rows; View new purchases shows every original receipt. The form reports an error if it cannot safely represent a supplier or fit its groups, instead of dropping receipts or overwriting manual records.
 
 Payments retains the workbook meaning of purchase cost. Viewing or refreshing Accounting creates no extra expense, payment or cash movement. Unconfirmed saves and damaged source or baseline records stop automatic calculations until their original result is checked.
+
+## Program bandwidth amounts in the original forms (0.1.24)
+
+When enabled by the owner, saved program purchases replace the imported bandwidth amounts for each month that has program purchases. Date, Name, Quantity, Description, Unit Price and Payments occupy the original monthly table. Monthly supplier costs, remaining budget and the Accounting year summary recalculate from those exact purchase costs. Existing and future program purchases appear once. Months without program purchases retain their imported entries.
+
+The private data directory's accounting-bandwidth-authority.json enables program_months mode for one year and immutable workbook source hash, and records its activation time. Restore it with the matching databases, workbook view policy and historical cutover baseline. Both private profiles accompany encrypted backups. A matching authority profile takes precedence over the earlier future-only baseline. Without either matching profile the manual imported workbook remains available.
+
+Program-owned monthly input cells and the corresponding annual provider cost formulas are read-only. Original table geometry, styles and other accounting inputs are preserved. Saved edits remain in their original journal and exact saved-request recovery remains available; superseded bandwidth amount edits are omitted only from the current calculation. Supplier date and cash entries retain their original association. If receipt count exceeds the original rows, exact costs are grouped by saved supplier name and every receipt remains available in the detail view. A month that cannot be represented safely reports an error.
+
+Payments means purchase cost. Viewing or refreshing Accounting does not create an expense, payment, purchase or cash movement. Durable source receipts must pass their original financial checks before being shown. The original workbook source is never rewritten by this display and calculation policy.

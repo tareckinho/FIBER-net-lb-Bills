@@ -34,6 +34,7 @@ function purchase(value,year){
 function excelDate(value){return (Date.parse(value+'T00:00:00Z')-Date.UTC(1899,11,30))/86400000;}
 
 const BASELINE='FIBERNETLB-ACCOUNTING-BANDWIDTH-BASELINE-1';
+const AUTHORITY='FIBERNETLB-ACCOUNTING-BANDWIDTH-AUTHORITY-1';
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const plain=v=>v&&typeof v==='object'&&!Array.isArray(v)&&[Object.prototype,null].includes(Object.getPrototypeOf(v));
 function purchaseFingerprint(value){
@@ -54,6 +55,17 @@ function baseline(value){
  });
  demand(new Set(rows.map(p=>p.requestId)).size===rows.length,'duplicate baseline receipt ID.');
  return {format:BASELINE,year:value.year,sourceSha256:value.sourceSha256.toLowerCase(),cutoverAt:value.cutoverAt,purchases:rows.sort((a,b)=>a.requestId<b.requestId?-1:a.requestId>b.requestId?1:0)};
+}
+function authority(value){
+ demand(plain(value),'invalid program authority.');const keys=['format','year','sourceSha256','mode','activatedAt'];
+ demand(Reflect.ownKeys(value).length===keys.length&&Reflect.ownKeys(value).every(k=>keys.includes(k))&&keys.every(k=>Object.hasOwn(value,k))&&value.format===AUTHORITY&&value.mode==='program_months'&&Number.isInteger(value.year)&&value.year>=2000&&value.year<=2099,'invalid program authority fields.');
+ demand(typeof value.sourceSha256==='string'&&/^[a-f0-9]{64}$/i.test(value.sourceSha256),'invalid program authority source identity.');
+ demand(typeof value.activatedAt==='string'&&/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.activatedAt)&&Number.isFinite(Date.parse(value.activatedAt))&&new Date(value.activatedAt).toISOString()===value.activatedAt,'invalid program authority activation time.');
+ return {...value,sourceSha256:value.sourceSha256.toLowerCase()};
+}
+function beirutLocal(value){
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Beirut',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value)),get=key=>parts.find(p=>p.type===key).value;
+ return get('year')+'-'+get('month')+'-'+get('day')+'T'+get('hour')+':'+get('minute')+':'+get('second');
 }
 function overrideMap(value){
  if(value===undefined)return {};demand(plain(value),'invalid saved Accounting overrides.');const result={};
@@ -105,19 +117,31 @@ function centsSum(rows){const n=rows.reduce((sum,p)=>sum+BigInt(p.totalCents),0n
 function project(snapshot,purchases,options={}){
  Model.validateSnapshot(snapshot);demand(plain(options),'invalid projection options.');
  const disabled=()=>({snapshot,signature:hash([FORMAT,'disabled',snapshot.year]),metadata:null,managedCells:{}});
- if(options.baseline==null)return disabled();
- const cutover=baseline(options.baseline);
+ const program=options.authority==null?null:authority(options.authority);
+ if(!program&&options.baseline==null)return disabled();
+ const cutover=program?{year:program.year,sourceSha256:program.sourceSha256,cutoverAt:program.activatedAt,purchases:[]}:baseline(options.baseline);
  if(cutover.year!==snapshot.year||!snapshot.sheets.some(s=>s.name===SHEET))return disabled();
- demand(typeof snapshot.sha256==='string'&&snapshot.sha256.toLowerCase()===cutover.sourceSha256,'baseline does not match the installed workbook source.');
+ demand(typeof snapshot.sha256==='string'&&snapshot.sha256.toLowerCase()===cutover.sourceSha256,'baseline or authority does not match the installed workbook source.');
  demand(Array.isArray(purchases)&&purchases.length<=20000,'purchases must be a bounded explicit array.');
  const all=purchases.map(p=>purchase(p,snapshot.year)).sort((a,b)=>a.id-b.id);
  demand(new Set(all.map(p=>p.requestId)).size===all.length,'duplicate purchase request ID.');
  demand(new Set(all.map(p=>p.id)).size===all.length,'conflicting purchase source ID.');
  const byRequest=new Map(all.map(p=>[p.requestId,p])),excluded=new Set(cutover.purchases.map(p=>p.requestId));
  for(const p of cutover.purchases){const current=byRequest.get(p.requestId);demand(current&&hash(current)===p.fingerprint,'a captured baseline receipt is missing or changed; no historical purchase was relinked.');}
- const eligible=all.filter(p=>!excluded.has(p.requestId)),overrides=overrideMap(options.overrides),origins=originMap(options.origins);
+ const eligible=all.filter(p=>!excluded.has(p.requestId)),submittedOverrides=overrideMap(options.overrides),overrides=copy(submittedOverrides),origins=originMap(options.origins);
+ const ownedMonths=new Set(program?eligible.map(p=>Number(p.purchaseDate.slice(5,7))-1):[]),sourceAccount=snapshot.sheets.find(s=>s.name==='Accounting');
+ function suppress(sheet,ref){if(overrides[sheet])delete overrides[sheet][ref];}
+ if(program){
+  for(const month of ownedMonths){
+   for(let row=3+24*month;row<=22+24*month;row++)for(const col of ['B','C','D','E','F','G'])suppress(SHEET,col+row);
+   for(let row=2;row<=Math.min(11,sourceAccount?.maxRow||11);row++){
+    const ref='A'+row,label=Object.hasOwn(overrides.Accounting||{},ref)?overrides.Accounting[ref]:sourceAccount?.cells[ref]?.value;
+    if(typeof label==='string'&&!empty(label)&&!stars(label))suppress('Accounting',Model.columnName(month+2)+row);
+   }
+  }
+ }
  const recordedAt=new Map(purchases.map(p=>[p.requestId,typeof p.recordedAt==='string'?p.recordedAt:null]));
- const signature=hash([FORMAT,snapshot.year,snapshot.sha256,cutover,all,all.map(p=>[p.requestId,recordedAt.get(p.requestId)]),overrides,origins]);
+ const signature=hash([FORMAT,snapshot.year,snapshot.sha256,program||cutover,all,all.map(p=>[p.requestId,recordedAt.get(p.requestId)]),overrides,origins]);
  const beforeValues=Model.calculate(snapshot,overrides).values;
  for(const p of eligible)demand(!/[*?~]/.test(p.supplierName)&&!/^\s*[<>=]/.test(p.supplierName),'the future supplier name requires a reviewed literal alias.');
  const originalByName=new Map(snapshot.sheets.map(s=>[s.name,s])),copies=new Map(),managed=new Map(),styles=[...(snapshot.styles||[])],styleCache=new Map(),runMaps=new Map(),original=originalByName.get(SHEET);
@@ -145,10 +169,12 @@ function project(snapshot,purchases,options={}){
  const uniqueNames=[...new Map(all.map(p=>[nameKey(p.supplierName),p.supplierName])).values()];
  const unambiguous=(pattern,name)=>uniqueNames.filter(n=>criteria(n,pattern)).every(n=>nameKey(n)===nameKey(name));
 
+ const ownershipStamp=value=>{const parsed=stamp(value);return program&&parsed?.zone==='offset'?stamp(beirutLocal(value)):parsed;};
  function firstReceipt(name,monthIndex){
-  const rows=eligible.filter(p=>nameKey(p.supplierName)===nameKey(name)&&(monthIndex===undefined||Number(p.purchaseDate.slice(5,7))===monthIndex+1)),times=rows.map(p=>stamp(recordedAt.get(p.requestId)));
+  const rows=eligible.filter(p=>nameKey(p.supplierName)===nameKey(name)&&(monthIndex===undefined||Number(p.purchaseDate.slice(5,7))===monthIndex+1)),times=rows.map(p=>ownershipStamp(recordedAt.get(p.requestId)));
   if(!times.length||times.some(t=>!t)||new Set(times.map(t=>t.zone)).size!==1)return null;
-  return times.reduce((a,b)=>a.time<=b.time?a:b);
+  const first=times.reduce((a,b)=>a.time<=b.time?a:b),activation=program?stamp(beirutLocal(program.activatedAt)):null;
+  return activation&&activation.time>first.time?activation:first;
  }
  const counterfactuals=new Map();
  function ownership(s,row,claim,first){
@@ -156,7 +182,7 @@ function project(snapshot,purchases,options={}){
   if(Object.hasOwn(records,claim+row)||active.some(ref=>!Object.hasOwn(records,ref)))return {safe:false,post:false};
   if(!refs.length)return {safe:!active.length,post:false};
   if(!first)return {safe:false,post:false};
-  for(const ref of refs){const origin=records[ref],when=stamp(origin.createdAt);if(origin.deleted===null||!when||when.zone!==first.zone||when.time<=first.time)return {safe:false,post:false};}
+  for(const ref of refs){const origin=records[ref],when=ownershipStamp(origin.createdAt);if(origin.deleted===null||!when||when.zone!==first.zone||when.time<=first.time)return {safe:false,post:false};}
   return {safe:true,post:true};
  }
  function beforeWithoutOwnedRow(s,row,state){
@@ -221,9 +247,11 @@ function project(snapshot,purchases,options={}){
   }
  }
  const metadata={sheet:SHEET,mode:'in_place',basis:'purchase_cost',signature,cutoverAt:cutover.cutoverAt,baselineCount:cutover.purchases.length,count:eligible.length,totalCents:centsSum(eligible),generatedStartRow:null,months:[],purchases:[]};
+ if(program)Object.assign(metadata,{policy:'program_months',activatedAt:program.activatedAt,programmeTotalCents:centsSum(eligible)});
  for(let month=0;month<12;month++){
   const first=3+24*month,last=22+24*month,total=23+24*month,key=snapshot.year+'-'+String(month+1).padStart(2,'0'),rows=eligible.filter(p=>p.purchaseDate.slice(0,7)===key),free=[];
   for(let row=first;row<=last;row++){
+   if(program&&ownedMonths.has(month)){for(const col of ['B','C','D','E','F','G'])put(original,col,row,null,col==='D'?'quantity':['F','G'].includes(col)?'usd':null);free.push(row);continue;}
    if(edited(original,row,['B','C','D','E','F','G']))continue;let occupied=false;
    for(const col of ['B','C','D','E','F']){const cell=original.cells[col+row];if(cell?.formula||!empty(cell?.value)){occupied=true;break;}}
    const g=original.cells['G'+row];if(g?.formula?!zero(g.value):!empty(g?.value))occupied=true;
@@ -246,17 +274,28 @@ function project(snapshot,purchases,options={}){
    writableSheet(original).rowHeights[row]=Math.max(original.rowHeights?.[row]??original.defaultRowHeight??20,Math.min(10000,lines*18));
    for(const purchase of group){rowProof.push({row,id:purchase.id,requestId:purchase.requestId,receiptNo:purchase.receiptNo,grouped});const d={...purchase,row};detail.push(d);metadata.purchases.push(d);}
   });
-  const cost=centsSum(rows);metadata.months.push({month:key,ref:'B'+(1+24*month),headerRow:2+24*month,firstRow:first,lastRow:last,totalRow:total,count:rows.length,totalCents:cost,linkedTotalCents:cost,monthlyTotalCents:null,rows:rowProof,purchases:detail});
+  const cost=centsSum(rows),info={month:key,ref:'B'+(1+24*month),headerRow:2+24*month,firstRow:first,lastRow:last,totalRow:total,count:rows.length,totalCents:cost,linkedTotalCents:cost,monthlyTotalCents:null,rows:rowProof,purchases:detail};
+  if(program)Object.assign(info,{source:ownedMonths.has(month)?'program':'imported',programmeTotalCents:cost,actualMonthlyTotalCents:null});metadata.months.push(info);
  }
  const account=originalByName.get('Accounting');
+ if(program&&ownedMonths.size){
+  demand(account,'the connected Accounting worksheet is required.');
+  for(const month of ownedMonths)for(let row=2;row<=Math.min(11,account.maxRow||11);row++){
+   const label=effective(account,'A'+row);if(typeof label!=='string'||empty(label)||stars(label))continue;
+   const col=Model.columnName(month+2),ref=col+row;suppress('Accounting',ref);
+   const cell={...(account.cells[ref]||{}),value:null,formula:'=IF(A'+row+'<>"",SUMIF('+MONTHS[month]+'!C2:C200,A'+row+','+MONTHS[month]+'!D2:D200),"")',editable:false,styleId:styleAt(account,row,month+2)};
+   delete cell.error;delete cell.display;writableSheet(account).cells[ref]=cell;
+   if(!managed.has(account.name))managed.set(account.name,new Set());managed.get(account.name).add(ref);
+  }
+ }
  for(const name of [...new Set(eligible.map(p=>p.supplierName))]){
   let matches=0;for(let row=2;row<=Math.min(11,account?.maxRow||11);row++){const value=effective(account,'A'+row);if(typeof value==='string'&&!empty(value)&&criteria(name,value))matches++;}
   demand(matches===1,'existing broad Accounting provider criteria require review before linking future purchases.');
  }
  const derived=copies.size?{...snapshot,styles,sheets:snapshot.sheets.map(s=>copies.get(s.name)||s)}:snapshot;
  Model.validateSnapshot(derived);const calculation=copies.size?Model.calculate(derived,overrides):{values:beforeValues};
- for(const month of metadata.months){const value=calculation.values[SHEET]['G'+month.totalRow],cents=typeof value==='number'&&Number.isFinite(value)?Math.round(value*100):null;month.monthlyTotalCents=Number.isSafeInteger(cents)?cents:null;}
+ for(const month of metadata.months){const value=calculation.values[SHEET]['G'+month.totalRow],cents=typeof value==='number'&&Number.isFinite(value)?Math.round(value*100):null;month.monthlyTotalCents=Number.isSafeInteger(cents)?cents:null;if(program)month.actualMonthlyTotalCents=month.monthlyTotalCents;}
  const managedCells={};for(const [name,refs]of managed)managedCells[name]=[...refs].sort((a,b)=>Number(a.match(/\d+$/)[0])-Number(b.match(/\d+$/)[0])||Model.columnNumber(a.match(/^[A-Z]+/)[0])-Model.columnNumber(b.match(/^[A-Z]+/)[0]));
- return {snapshot:derived,signature,metadata,managedCells};
+ return {snapshot:derived,signature,metadata,managedCells,...(program?{calculationOverrides:overrides}:{})};
 }
 module.exports={project,purchaseFingerprint};
